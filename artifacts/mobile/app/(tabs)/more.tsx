@@ -1200,7 +1200,7 @@ function WhatsAppOwnerSection({ onClose }: { onClose: () => void }) {
   const insets = useSafeAreaInsets();
   const gymId = user?.gym_id;
   const { data: members = [] } = useMembers(gymId);
-  const { data: templates = [], isLoading: loadingTemplates } = useWhatsappTemplates(gymId);
+  const { data: templates = [], isLoading: loadingTemplates } = useWhatsappTemplates();
   const { data: logs = [], isLoading: loadingLogs } = useWhatsappLogs();
   const updateTemplate = useUpdateWhatsappTemplate();
   const insertLog = useInsertWhatsappLog();

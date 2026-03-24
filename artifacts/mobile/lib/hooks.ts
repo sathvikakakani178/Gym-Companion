@@ -469,15 +469,13 @@ export function useInsertWhatsappLog() {
 }
 
 // ── WHATSAPP TEMPLATES ─────────────────────────────────────────────────
-export function useWhatsappTemplates(gymId?: string | null) {
+export function useWhatsappTemplates() {
   return useQuery({
-    queryKey: ['whatsapp_templates', gymId],
-    enabled: !!gymId,
+    queryKey: ['whatsapp_templates'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('whatsapp_templates')
         .select('*')
-        .eq('gym_id', gymId!)
         .order('created_at');
       if (error) throw error;
       return data ?? [];
