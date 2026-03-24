@@ -23,19 +23,30 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
+function withTimeout<T>(promise: Promise<T>, ms: number, msg: string): Promise<T> {
+  const timeout = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error(msg)), ms)
+  );
+  return Promise.race([promise, timeout]);
+}
+
 async function loadProfile(session: Session): Promise<User> {
   try {
-    const { data: profile, error } = await supabase
-      .from('profiles')
-      .select('id, name, email, role, gym_id, branch_id')
-      .eq('id', session.user.id)
-      .maybeSingle();
+    const { data: profile, error } = await withTimeout(
+      supabase
+        .from('profiles')
+        .select('id, name, email, role, gym_id, branch_id')
+        .eq('id', session.user.id)
+        .maybeSingle(),
+      8000,
+      'Profile load timed out'
+    );
 
     if (error || !profile) {
       const email = session.user.email || '';
       return {
         id: session.user.id,
-        name: session.user.user_metadata?.name || 'Admin',
+        name: session.user.user_metadata?.name || email.split('@')[0] || 'Admin',
         email,
         role: 'super_admin',
       };
@@ -65,14 +76,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      setSession(session);
-      if (session) {
-        const profile = await loadProfile(session);
-        setUser(profile);
-      }
-      setLoading(false);
-    });
+    // Initialise — give getSession a hard timeout so we never hang forever
+    withTimeout(supabase.auth.getSession(), 10000, 'Session check timed out')
+      .then(async ({ data: { session } }) => {
+        setSession(session);
+        if (session) {
+          const profile = await loadProfile(session);
+          setUser(profile);
+        }
+      })
+      .catch((err) => {
+        console.warn('Auth init error:', err.message);
+      })
+      .finally(() => {
+        setLoading(false);
+      });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setSession(session);
@@ -88,9 +106,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = async (email: string, password: string): Promise<string | null> => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) return error.message;
-    return null;
+    try {
+      const { error } = await withTimeout(
+        supabase.auth.signInWithPassword({ email, password }),
+        12000,
+        'Sign in timed out. Please check your connection and try again.'
+      );
+      if (error) return error.message;
+      return null;
+    } catch (err: any) {
+      return err.message || 'An unexpected error occurred';
+    }
   };
 
   const logout = async () => {
