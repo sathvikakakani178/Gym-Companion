@@ -14,12 +14,11 @@ import * as Haptics from 'expo-haptics';
 import { supabase } from '@/lib/supabase';
 import { useQueryClient } from '@tanstack/react-query';
 
-const PLANS = ['trial', 'basic', 'pro', 'enterprise'] as const;
+const PLANS = ['base', 'classic', 'pro'] as const;
 const planColors: Record<string, string> = {
-  trial: Colors.warning,
-  basic: Colors.info,
+  base: Colors.info,
+  classic: Colors.warning,
   pro: Colors.primary,
-  enterprise: Colors.purple,
 };
 
 export default function GymsScreen() {
@@ -35,14 +34,19 @@ export default function GymsScreen() {
   const [showAdd, setShowAdd] = useState(false);
   const [adding, setAdding] = useState(false);
   const [showPass, setShowPass] = useState(false);
-  const [form, setForm] = useState({ name: '', owner_name: '', email: '', phone: '', password: '', plan: 'trial' });
+  const [form, setForm] = useState({ name: '', owner_name: '', email: '', phone: '', password: '', plan: 'base' });
   const [formError, setFormError] = useState('');
   const [pendingToggle, setPendingToggle] = useState<any>(null);
 
   const filtered = gyms.filter((g: any) => {
     if (planFilter !== 'all' && g.plan !== planFilter) return false;
+    if (!search) return true;
     const q = search.toLowerCase();
-    return g.name.toLowerCase().includes(q) || g.owner_name.toLowerCase().includes(q);
+    return (
+      g.name?.toLowerCase().includes(q) ||
+      g.email?.toLowerCase().includes(q) ||
+      g.phone?.toLowerCase().includes(q)
+    );
   });
 
   const handleAdd = async () => {
@@ -75,7 +79,7 @@ export default function GymsScreen() {
       details: form.name,
     });
     setShowAdd(false);
-    setForm({ name: '', owner_name: '', email: '', phone: '', password: '', plan: 'trial' });
+    setForm({ name: '', owner_name: '', email: '', phone: '', password: '', plan: 'base' });
   };
 
   const toggleActive = (gym: any) => { setPendingToggle(gym); };
@@ -101,7 +105,7 @@ export default function GymsScreen() {
 
   const activeCount = gyms.filter((g: any) => g.is_active).length;
   const suspendedCount = gyms.filter((g: any) => !g.is_active).length;
-  const trialCount = gyms.filter((g: any) => g.plan === 'trial').length;
+  const proCount = gyms.filter((g: any) => g.plan === 'pro').length;
 
   return (
     <View style={styles.container}>
@@ -123,9 +127,9 @@ export default function GymsScreen() {
               <Text style={[styles.statValue, { color: Colors.danger }]}>{suspendedCount}</Text>
               <Text style={styles.statLabel}>Suspended</Text>
             </View>
-            <View style={[styles.statCard, { borderTopColor: Colors.warning }]}>
-              <Text style={[styles.statValue, { color: Colors.warning }]}>{trialCount}</Text>
-              <Text style={styles.statLabel}>Trial</Text>
+            <View style={[styles.statCard, { borderTopColor: Colors.primary }]}>
+              <Text style={[styles.statValue, { color: Colors.primary }]}>{proCount}</Text>
+              <Text style={styles.statLabel}>Pro Plan</Text>
             </View>
           </View>
 
@@ -250,7 +254,7 @@ export default function GymsScreen() {
                       </View>
                     )}
                   </View>
-                  <Text style={styles.ownerName}>{g.owner_name}</Text>
+                  <Text style={styles.ownerName}>{g.email || g.phone || ''}</Text>
                 </View>
                 <View style={[styles.planBadge, { backgroundColor: planColors[g.plan] + '22' }]}>
                   <Text style={[styles.planText, { color: planColors[g.plan] }]}>{g.plan}</Text>

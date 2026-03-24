@@ -31,6 +31,7 @@ export default function TrainersScreen() {
     name: '', email: '', phone: '', password: '', specialization: '', branch_id: '',
   });
   const [formError, setFormError] = useState('');
+  const [topError, setTopError] = useState('');
   const [pendingDelete, setPendingDelete] = useState<any>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
@@ -51,6 +52,7 @@ export default function TrainersScreen() {
     }
     setAdding(true);
     const { error } = await supabase.rpc('create_trainer_account' as any, {
+      p_gym_id: user?.gym_id || null,
       p_branch_id: form.branch_id || null,
       p_name: form.name,
       p_email: form.email,
@@ -73,9 +75,10 @@ export default function TrainersScreen() {
   };
 
   const handleDelete = (trainer: any) => {
+    setTopError('');
     const clientCount = members.filter((m: any) => m.trainer_id === trainer.profile_id).length;
     if (clientCount > 0) {
-      setFormError(`${clientCount} client(s) still assigned to this trainer`);
+      setTopError(`Cannot delete: ${clientCount} client(s) are still assigned to ${trainer.profile?.name || 'this trainer'}. Reassign them first.`);
       return;
     }
     setPendingDelete(trainer);
@@ -139,6 +142,16 @@ export default function TrainersScreen() {
           contentContainerStyle={[styles.content, { paddingBottom: tabBarHeight + 20 }]}
           showsVerticalScrollIndicator={false}
         >
+          {!!topError && (
+            <View style={styles.topErrorBox}>
+              <Ionicons name="alert-circle-outline" size={14} color={Colors.danger} />
+              <Text style={styles.topErrorText}>{topError}</Text>
+              <Pressable onPress={() => setTopError('')}>
+                <Ionicons name="close-circle" size={16} color={Colors.danger} />
+              </Pressable>
+            </View>
+          )}
+
           <Pressable
             style={({ pressed }) => [styles.addBtn, pressed && { opacity: 0.8 }]}
             onPress={() => { Haptics.selectionAsync(); setShowAdd(!showAdd); }}
@@ -392,6 +405,12 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.dangerMuted, borderRadius: 10, padding: 10, borderWidth: 1, borderColor: Colors.danger + '40',
   },
   errorText: { fontFamily: 'Inter_400Regular', fontSize: 13, color: Colors.danger, flex: 1 },
+  topErrorBox: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: Colors.dangerMuted, borderRadius: 10, padding: 12,
+    borderWidth: 1, borderColor: Colors.danger + '40',
+  },
+  topErrorText: { fontFamily: 'Inter_400Regular', fontSize: 13, color: Colors.danger, flex: 1 },
   submitBtn: {
     height: 44, backgroundColor: Colors.primary, borderRadius: 10,
     alignItems: 'center', justifyContent: 'center',
