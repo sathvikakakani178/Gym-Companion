@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, Pressable, TextInput,
-  FlatList, Modal, ActivityIndicator, Alert,
+  FlatList, Modal, ActivityIndicator,
 } from 'react-native';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
@@ -10,6 +10,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useLeads, useInsertLead, useUpdateLead, useDeleteLead, useInsertActivity, useBranches } from '@/lib/hooks';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { Badge } from '@/components/Badge';
+import { ConfirmModal } from '@/components/ConfirmModal';
 import { Colors } from '@/constants/colors';
 import * as Haptics from 'expo-haptics';
 
@@ -45,6 +46,8 @@ export default function LeadsScreen() {
   const [filter, setFilter] = useState<LeadStatus | 'all'>('all');
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ name: '', phone: '', source: 'whatsapp', goal: '' });
+  const [formError, setFormError] = useState('');
+  const [pendingDelete, setPendingDelete] = useState<any>(null);
 
   const filtered = useMemo(() => {
     return leads.filter(l => {
@@ -67,24 +70,22 @@ export default function LeadsScreen() {
     }
   };
 
-  const handleDelete = (lead: any) => {
-    Alert.alert('Delete Lead', `Remove ${lead.name}?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete', style: 'destructive', onPress: () => {
-          deleteLead.mutate(lead.id, {
-            onSuccess: () => {
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-              insertActivity.mutate({ gym_id: user?.gym_id || null, actor_name: user?.name || 'System', action: 'Deleted lead', details: lead.name });
-            },
-          });
-        },
+  const handleDelete = (lead: any) => { setPendingDelete(lead); };
+
+  const confirmDelete = () => {
+    if (!pendingDelete) return;
+    deleteLead.mutate(pendingDelete.id, {
+      onSuccess: () => {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        insertActivity.mutate({ gym_id: user?.gym_id || null, actor_name: user?.name || 'System', action: 'Deleted lead', details: pendingDelete.name });
+        setPendingDelete(null);
       },
-    ]);
+    });
   };
 
   const handleAdd = () => {
-    if (!form.name || !form.phone) { Alert.alert('Error', 'Name and phone are required'); return; }
+    setFormError('');
+    if (!form.name || !form.phone) { setFormError('Name and phone are required'); return; }
     insertLead.mutate({
       name: form.name, phone: form.phone,
       source: form.source, goal: form.goal,
@@ -98,7 +99,7 @@ export default function LeadsScreen() {
         setForm({ name: '', phone: '', source: 'whatsapp', goal: '' });
         insertActivity.mutate({ gym_id: user?.gym_id || null, actor_name: user?.name || 'System', action: 'Added new lead', details: form.name });
       },
-      onError: (e: any) => Alert.alert('Error', e.message),
+      onError: (e: any) => setFormError(e.message),
     });
   };
 
@@ -228,6 +229,12 @@ export default function LeadsScreen() {
               ))}
             </View>
           </View>
+          {!!formError && (
+            <View style={styles.errorBox}>
+              <Ionicons name="alert-circle-outline" size={14} color={Colors.danger} />
+              <Text style={styles.errorText}>{formError}</Text>
+            </View>
+          )}
           <Pressable
             style={({ pressed }) => [styles.submitBtn, pressed && { opacity: 0.85 }, insertLead.isPending && { opacity: 0.6 }]}
             onPress={handleAdd}
@@ -237,6 +244,18 @@ export default function LeadsScreen() {
           </Pressable>
         </View>
       </Modal>
+
+      <ConfirmModal
+        visible={!!pendingDelete}
+        title="Delete Lead"
+        message={`Remove ${pendingDelete?.name} from the pipeline? This cannot be undone.`}
+        confirmLabel="Delete"
+        destructive
+        icon="trash-outline"
+        loading={deleteLead.isPending}
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(null)}
+      />
     </View>
   );
 }
@@ -296,6 +315,11 @@ const styles = StyleSheet.create({
   },
   sourceChipActive: { borderColor: Colors.primary, backgroundColor: Colors.primaryMuted },
   sourceChipText: { fontFamily: 'Inter_500Medium', fontSize: 12, color: Colors.textSecondary, textTransform: 'capitalize' },
+  errorBox: {
+    flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12,
+    backgroundColor: Colors.dangerMuted, borderRadius: 10, padding: 10, borderWidth: 1, borderColor: Colors.danger + '40',
+  },
+  errorText: { fontFamily: 'Inter_400Regular', fontSize: 13, color: Colors.danger, flex: 1 },
   submitBtn: {
     height: 50, backgroundColor: Colors.primary, borderRadius: 12,
     alignItems: 'center', justifyContent: 'center', marginTop: 8,

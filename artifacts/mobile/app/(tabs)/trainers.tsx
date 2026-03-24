@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, Pressable,
-  Alert, ActivityIndicator, TextInput, Modal,
+  ActivityIndicator, TextInput, Modal,
 } from 'react-native';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
 import { useTrainers, useMembers, useInsertActivity, useBranches } from '@/lib/hooks';
 import { ScreenHeader } from '@/components/ScreenHeader';
+import { ConfirmModal } from '@/components/ConfirmModal';
 import { Colors } from '@/constants/colors';
 import * as Haptics from 'expo-haptics';
 import { supabase } from '@/lib/supabase';
@@ -29,18 +30,23 @@ export default function TrainersScreen() {
   const [form, setForm] = useState({
     name: '', email: '', phone: '', password: '', specialization: '', branch_id: '',
   });
+  const [formError, setFormError] = useState('');
+  const [pendingDelete, setPendingDelete] = useState<any>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   const [editingTrainer, setEditingTrainer] = useState<any>(null);
   const [editForm, setEditForm] = useState({ name: '', phone: '', specialization: '', branch_id: '' });
+  const [editError, setEditError] = useState('');
   const [saving, setSaving] = useState(false);
 
   const handleAdd = async () => {
+    setFormError('');
     if (!form.name || !form.email || !form.phone || !form.password) {
-      Alert.alert('Error', 'Name, email, phone and password are required');
+      setFormError('Name, email, phone and password are required');
       return;
     }
     if (form.password.length < 6) {
-      Alert.alert('Error', 'Password must be at least 6 characters');
+      setFormError('Password must be at least 6 characters');
       return;
     }
     setAdding(true);
@@ -53,7 +59,7 @@ export default function TrainersScreen() {
       p_specialization: form.specialization || null,
     });
     setAdding(false);
-    if (error) { Alert.alert('Error', error.message); return; }
+    if (error) { setFormError(error.message); return; }
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     qc.invalidateQueries({ queryKey: ['trainers'] });
     insertActivity.mutate({
@@ -69,26 +75,27 @@ export default function TrainersScreen() {
   const handleDelete = (trainer: any) => {
     const clientCount = members.filter((m: any) => m.trainer_id === trainer.profile_id).length;
     if (clientCount > 0) {
-      Alert.alert('Cannot Delete', `${clientCount} client(s) still assigned to this trainer`);
+      setFormError(`${clientCount} client(s) still assigned to this trainer`);
       return;
     }
-    Alert.alert('Remove Trainer', `Remove ${trainer.profile?.name}? They will lose access.`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Remove', style: 'destructive', onPress: async () => {
-          await supabase.from('trainers').delete().eq('id', trainer.id);
-          await supabase.from('profiles').delete().eq('id', trainer.profile_id);
-          qc.invalidateQueries({ queryKey: ['trainers'] });
-          insertActivity.mutate({
-            gym_id: user?.gym_id || null,
-            actor_name: user?.name || 'Owner',
-            action: 'Removed trainer',
-            details: trainer.profile?.name,
-          });
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        },
-      },
-    ]);
+    setPendingDelete(trainer);
+  };
+
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    setDeleteLoading(true);
+    await supabase.from('trainers').delete().eq('id', pendingDelete.id);
+    await supabase.from('profiles').delete().eq('id', pendingDelete.profile_id);
+    setDeleteLoading(false);
+    qc.invalidateQueries({ queryKey: ['trainers'] });
+    insertActivity.mutate({
+      gym_id: user?.gym_id || null,
+      actor_name: user?.name || 'Owner',
+      action: 'Removed trainer',
+      details: pendingDelete.profile?.name,
+    });
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setPendingDelete(null);
   };
 
   const startEdit = (trainer: any) => {
@@ -103,18 +110,19 @@ export default function TrainersScreen() {
 
   const handleEditSave = async () => {
     if (!editingTrainer) return;
+    setEditError('');
     setSaving(true);
     const { error: pErr } = await supabase.from('profiles').update({
       name: editForm.name,
       phone: editForm.phone || null,
     }).eq('id', editingTrainer.profile_id);
-    if (pErr) { Alert.alert('Error', pErr.message); setSaving(false); return; }
+    if (pErr) { setEditError(pErr.message); setSaving(false); return; }
     const { error: tErr } = await supabase.from('trainers').update({
       specialization: editForm.specialization || null,
       branch_id: editForm.branch_id || null,
     }).eq('id', editingTrainer.id);
     setSaving(false);
-    if (tErr) { Alert.alert('Error', tErr.message); return; }
+    if (tErr) { setEditError(tErr.message); return; }
     qc.invalidateQueries({ queryKey: ['trainers'] });
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setEditingTrainer(null);
@@ -147,6 +155,7 @@ export default function TrainersScreen() {
             setShowPass={setShowPass}
             onSubmit={handleAdd}
             loading={adding}
+            error={formError}
           />}
 
           {trainers.length === 0 && !showAdd && (
@@ -247,6 +256,12 @@ export default function TrainersScreen() {
                 ))}
               </ScrollView>
             </View>
+            {!!editError && (
+              <View style={styles.errorBox}>
+                <Ionicons name="alert-circle-outline" size={14} color={Colors.danger} />
+                <Text style={styles.errorText}>{editError}</Text>
+              </View>
+            )}
             <Pressable
               style={[styles.submitBtn, saving && { opacity: 0.6 }]}
               onPress={handleEditSave}
@@ -257,11 +272,23 @@ export default function TrainersScreen() {
           </View>
         </View>
       </Modal>
+
+      <ConfirmModal
+        visible={!!pendingDelete}
+        title="Remove Trainer"
+        message={`Remove ${pendingDelete?.profile?.name}? They will lose access to the app.`}
+        confirmLabel="Remove"
+        destructive
+        icon="trash-outline"
+        loading={deleteLoading}
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(null)}
+      />
     </View>
   );
 }
 
-function AddTrainerForm({ form, setForm, branches, showPass, setShowPass, onSubmit, loading }: any) {
+function AddTrainerForm({ form, setForm, branches, showPass, setShowPass, onSubmit, loading, error }: any) {
   const fields = [
     { field: 'name', label: 'Full Name *', placeholder: 'Trainer name', keyboard: 'default' },
     { field: 'email', label: 'Email *', placeholder: 'trainer@gym.com', keyboard: 'email-address' },
@@ -316,6 +343,12 @@ function AddTrainerForm({ form, setForm, branches, showPass, setShowPass, onSubm
           ))}
         </ScrollView>
       </View>
+      {!!error && (
+        <View style={styles.errorBox}>
+          <Ionicons name="alert-circle-outline" size={14} color={Colors.danger} />
+          <Text style={styles.errorText}>{error}</Text>
+        </View>
+      )}
       <Pressable style={[styles.submitBtn, loading && { opacity: 0.6 }]} onPress={onSubmit} disabled={loading}>
         {loading ? <ActivityIndicator color="#000" /> : <Text style={styles.submitBtnText}>Create Trainer Account</Text>}
       </Pressable>
@@ -354,6 +387,11 @@ const styles = StyleSheet.create({
   chipActive: { backgroundColor: Colors.primaryMuted, borderColor: Colors.primary },
   chipText: { fontFamily: 'Inter_500Medium', fontSize: 13, color: Colors.textSecondary },
   chipTextActive: { color: Colors.primary },
+  errorBox: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: Colors.dangerMuted, borderRadius: 10, padding: 10, borderWidth: 1, borderColor: Colors.danger + '40',
+  },
+  errorText: { fontFamily: 'Inter_400Regular', fontSize: 13, color: Colors.danger, flex: 1 },
   submitBtn: {
     height: 44, backgroundColor: Colors.primary, borderRadius: 10,
     alignItems: 'center', justifyContent: 'center',

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, Pressable, FlatList,
-  TextInput, ActivityIndicator, Modal, Alert,
+  TextInput, ActivityIndicator, Modal,
 } from 'react-native';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
@@ -151,6 +151,7 @@ function ClientDetailModal({ profile, onClose }: { profile: any; onClose: () => 
   const updateProfile = useUpdateClientProfile();
   const { data: weightHistory = [] } = useWeightHistory(profile.id);
   const [editing, setEditing] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const [editForm, setEditForm] = useState({
     weight_kg: String(profile.weight_kg || ''),
     target_weight: String(profile.target_weight || ''),
@@ -169,6 +170,7 @@ function ClientDetailModal({ profile, onClose }: { profile: any; onClose: () => 
   const statusLabel = daysLeft === null ? 'No expiry' : daysLeft < 0 ? 'Expired' : daysLeft <= 7 ? `Expires in ${daysLeft}d` : `Active · ${daysLeft}d left`;
 
   const handleSave = () => {
+    setSaveError('');
     updateProfile.mutate({
       id: profile.id,
       weight_kg: parseFloat(editForm.weight_kg) || null,
@@ -183,7 +185,7 @@ function ClientDetailModal({ profile, onClose }: { profile: any; onClose: () => 
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         setEditing(false);
       },
-      onError: (e: any) => Alert.alert('Error', e.message),
+      onError: (e: any) => setSaveError(e.message),
     });
   };
 
@@ -237,6 +239,12 @@ function ClientDetailModal({ profile, onClose }: { profile: any; onClose: () => 
                   />
                 </View>
               ))}
+              {!!saveError && (
+                <View style={modal.errorBox}>
+                  <Ionicons name="alert-circle-outline" size={13} color={Colors.danger} />
+                  <Text style={modal.errorText}>{saveError}</Text>
+                </View>
+              )}
               <Pressable
                 style={[modal.saveBtn, updateProfile.isPending && { opacity: 0.6 }]}
                 onPress={handleSave}
@@ -382,6 +390,11 @@ const modal = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', marginTop: 4,
   },
   saveBtnText: { fontFamily: 'Inter_600SemiBold', fontSize: 14, color: '#000' },
+  errorBox: {
+    flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8,
+    backgroundColor: Colors.dangerMuted, borderRadius: 10, padding: 10, borderWidth: 1, borderColor: Colors.danger + '40',
+  },
+  errorText: { fontFamily: 'Inter_400Regular', fontSize: 13, color: Colors.danger, flex: 1 },
   weightRow: {
     flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8,
     borderBottomWidth: 1, borderBottomColor: Colors.border,

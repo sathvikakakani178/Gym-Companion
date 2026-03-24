@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, Pressable,
-  Alert, ActivityIndicator, TextInput, Modal,
+  ActivityIndicator, TextInput, Modal,
 } from 'react-native';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthContext';
 import { useGyms, useUpdateGym, useInsertActivity } from '@/lib/hooks';
 import { ScreenHeader } from '@/components/ScreenHeader';
+import { ConfirmModal } from '@/components/ConfirmModal';
 import { Colors } from '@/constants/colors';
 import * as Haptics from 'expo-haptics';
 import { supabase } from '@/lib/supabase';
@@ -35,6 +36,8 @@ export default function GymsScreen() {
   const [adding, setAdding] = useState(false);
   const [showPass, setShowPass] = useState(false);
   const [form, setForm] = useState({ name: '', owner_name: '', email: '', phone: '', password: '', plan: 'trial' });
+  const [formError, setFormError] = useState('');
+  const [pendingToggle, setPendingToggle] = useState<any>(null);
 
   const filtered = gyms.filter((g: any) => {
     if (planFilter !== 'all' && g.plan !== planFilter) return false;
@@ -43,12 +46,13 @@ export default function GymsScreen() {
   });
 
   const handleAdd = async () => {
+    setFormError('');
     if (!form.name || !form.owner_name || !form.email || !form.password) {
-      Alert.alert('Error', 'Gym name, owner name, email and password are required');
+      setFormError('Gym name, owner name, email and password are required');
       return;
     }
     if (form.password.length < 6) {
-      Alert.alert('Error', 'Password must be at least 6 characters');
+      setFormError('Password must be at least 6 characters');
       return;
     }
     setAdding(true);
@@ -61,7 +65,7 @@ export default function GymsScreen() {
       p_plan: form.plan,
     });
     setAdding(false);
-    if (error) { Alert.alert('Error', error.message); return; }
+    if (error) { setFormError(error.message); return; }
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     qc.invalidateQueries({ queryKey: ['gyms'] });
     insertActivity.mutate({
@@ -74,33 +78,24 @@ export default function GymsScreen() {
     setForm({ name: '', owner_name: '', email: '', phone: '', password: '', plan: 'trial' });
   };
 
-  const toggleActive = (gym: any) => {
-    Alert.alert(
-      gym.is_active ? 'Suspend Gym' : 'Reactivate Gym',
-      `${gym.is_active ? 'Suspend' : 'Reactivate'} ${gym.name}?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: gym.is_active ? 'Suspend' : 'Reactivate',
-          style: gym.is_active ? 'destructive' : 'default',
-          onPress: () => {
-            updateGym.mutate(
-              { id: gym.id, is_active: !gym.is_active },
-              {
-                onSuccess: () => {
-                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                  insertActivity.mutate({
-                    gym_id: gym.id,
-                    actor_name: user?.name || 'Admin',
-                    action: gym.is_active ? 'Suspended gym' : 'Reactivated gym',
-                    details: gym.name,
-                  });
-                },
-              }
-            );
-          },
+  const toggleActive = (gym: any) => { setPendingToggle(gym); };
+
+  const confirmToggle = () => {
+    if (!pendingToggle) return;
+    updateGym.mutate(
+      { id: pendingToggle.id, is_active: !pendingToggle.is_active },
+      {
+        onSuccess: () => {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          insertActivity.mutate({
+            gym_id: pendingToggle.id,
+            actor_name: user?.name || 'Admin',
+            action: pendingToggle.is_active ? 'Suspended gym' : 'Reactivated gym',
+            details: pendingToggle.name,
+          });
+          setPendingToggle(null);
         },
-      ]
+      }
     );
   };
 
@@ -221,6 +216,12 @@ export default function GymsScreen() {
                   ))}
                 </ScrollView>
               </View>
+              {!!formError && (
+                <View style={styles.errorBox}>
+                  <Ionicons name="alert-circle-outline" size={14} color={Colors.danger} />
+                  <Text style={styles.errorText}>{formError}</Text>
+                </View>
+              )}
               <Pressable style={[styles.submitBtn, adding && { opacity: 0.6 }]} onPress={handleAdd} disabled={adding}>
                 {adding ? <ActivityIndicator color="#000" /> : <Text style={styles.submitBtnText}>Create Gym</Text>}
               </Pressable>
@@ -281,6 +282,18 @@ export default function GymsScreen() {
           ))}
         </ScrollView>
       )}
+
+      <ConfirmModal
+        visible={!!pendingToggle}
+        title={pendingToggle?.is_active ? 'Suspend Gym' : 'Reactivate Gym'}
+        message={`${pendingToggle?.is_active ? 'Suspend' : 'Reactivate'} ${pendingToggle?.name}?`}
+        confirmLabel={pendingToggle?.is_active ? 'Suspend' : 'Reactivate'}
+        destructive={pendingToggle?.is_active}
+        icon={pendingToggle?.is_active ? 'pause-circle-outline' : 'play-circle-outline'}
+        loading={updateGym.isPending}
+        onConfirm={confirmToggle}
+        onCancel={() => setPendingToggle(null)}
+      />
     </View>
   );
 }
@@ -373,4 +386,9 @@ const styles = StyleSheet.create({
   toggleText: { fontFamily: 'Inter_500Medium', fontSize: 12 },
   empty: { alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 48 },
   emptyTitle: { fontFamily: 'Inter_600SemiBold', fontSize: 16, color: Colors.text },
+  errorBox: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: Colors.dangerMuted, borderRadius: 10, padding: 10, borderWidth: 1, borderColor: Colors.danger + '40',
+  },
+  errorText: { fontFamily: 'Inter_400Regular', fontSize: 13, color: Colors.danger, flex: 1 },
 });

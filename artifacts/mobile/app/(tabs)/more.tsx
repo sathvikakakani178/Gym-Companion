@@ -1,38 +1,42 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, Pressable,
-  Alert, ActivityIndicator, TextInput, Modal,
+  ActivityIndicator, TextInput, Modal, Platform,
 } from 'react-native';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import {
   useLeads, useMembers, useTrainers, useBranches, useInsertBranch, useUpdateBranch,
   useDeleteBranch, useInsertActivity, useGyms,
 } from '@/lib/hooks';
 import { ScreenHeader } from '@/components/ScreenHeader';
+import { ConfirmModal } from '@/components/ConfirmModal';
 import { Colors } from '@/constants/colors';
 import * as Haptics from 'expo-haptics';
 
 export default function MoreScreen() {
   const { user, logout } = useAuth();
+  const router = useRouter();
   const tabBarHeight = useBottomTabBarHeight();
   const [loggingOut, setLoggingOut] = useState(false);
   const [activeSection, setActiveSection] = useState<string | null>(null);
+  const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
 
-  const handleLogout = async () => {
-    Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Sign Out', style: 'destructive', onPress: async () => {
-          setLoggingOut(true);
-          await logout();
-          setLoggingOut(false);
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        },
-      },
-    ]);
+  const doSignOut = async () => {
+    setShowSignOutConfirm(false);
+    setLoggingOut(true);
+    try {
+      await logout();
+    } catch (_) {}
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    router.replace('/login');
+  };
+
+  const handleLogout = () => {
+    setShowSignOutConfirm(true);
   };
 
   const isAdmin = user?.role === 'super_admin';
@@ -125,6 +129,29 @@ export default function MoreScreen() {
       <Modal visible={activeSection === 'gym_analytics'} animationType="slide" onRequestClose={() => setActiveSection(null)}>
         <GymAnalyticsSection onClose={() => setActiveSection(null)} />
       </Modal>
+
+      {/* Custom sign-out confirmation (replaces Alert.alert which is blocked in iframes on web) */}
+      <Modal visible={showSignOutConfirm} transparent animationType="fade" onRequestClose={() => setShowSignOutConfirm(false)}>
+        <View style={signOutModal.overlay}>
+          <View style={signOutModal.card}>
+            <View style={signOutModal.iconWrap}>
+              <Ionicons name="log-out-outline" size={28} color={Colors.danger} />
+            </View>
+            <Text style={signOutModal.title}>Sign Out</Text>
+            <Text style={signOutModal.message}>Are you sure you want to sign out of your account?</Text>
+            <View style={signOutModal.buttons}>
+              <Pressable style={signOutModal.cancelBtn} onPress={() => setShowSignOutConfirm(false)}>
+                <Text style={signOutModal.cancelText}>Cancel</Text>
+              </Pressable>
+              <Pressable style={signOutModal.confirmBtn} onPress={doSignOut} disabled={loggingOut}>
+                {loggingOut
+                  ? <ActivityIndicator color="#fff" size="small" />
+                  : <Text style={signOutModal.confirmText}>Sign Out</Text>}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -153,11 +180,15 @@ function BranchesSection({ onClose }: { onClose: () => void }) {
   const insertActivity = useInsertActivity();
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ name: '', location: '' });
+  const [formError, setFormError] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ name: '', location: '' });
+  const [editError, setEditError] = useState('');
+  const [pendingDelete, setPendingDelete] = useState<any>(null);
 
   const handleAdd = () => {
-    if (!form.name) { Alert.alert('Error', 'Branch name is required'); return; }
+    setFormError('');
+    if (!form.name) { setFormError('Branch name is required'); return; }
     insertBranch.mutate(
       { name: form.name, location: form.location || null, gym_id: user?.gym_id || '' },
       {
@@ -167,18 +198,19 @@ function BranchesSection({ onClose }: { onClose: () => void }) {
           setForm({ name: '', location: '' });
           insertActivity.mutate({ gym_id: user?.gym_id || null, actor_name: user?.name || 'Owner', action: 'Created branch', details: form.name });
         },
-        onError: (e: any) => Alert.alert('Error', e.message),
+        onError: (e: any) => setFormError(e.message),
       }
     );
   };
 
   const handleUpdate = () => {
+    setEditError('');
     if (!editingId || !editForm.name) return;
     updateBranch.mutate(
       { id: editingId, name: editForm.name, location: editForm.location || null },
       {
         onSuccess: () => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); setEditingId(null); },
-        onError: (e: any) => Alert.alert('Error', e.message),
+        onError: (e: any) => setEditError(e.message),
       }
     );
   };
@@ -186,12 +218,16 @@ function BranchesSection({ onClose }: { onClose: () => void }) {
   const handleDelete = (b: any) => {
     const memberCount = members.filter((m: any) => m.branch_id === b.id).length;
     const trainerCount = trainers.filter((t: any) => t.branch_id === b.id).length;
-    if (memberCount > 0) { Alert.alert('Cannot Delete', `${memberCount} member(s) still assigned`); return; }
-    if (trainerCount > 0) { Alert.alert('Cannot Delete', `${trainerCount} trainer(s) still assigned`); return; }
-    Alert.alert('Delete Branch', `Remove ${b.name}?`, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: () => deleteBranch.mutate(b.id) },
-    ]);
+    if (memberCount > 0) { setFormError(`${memberCount} member(s) still assigned to this branch`); return; }
+    if (trainerCount > 0) { setFormError(`${trainerCount} trainer(s) still assigned to this branch`); return; }
+    setPendingDelete(b);
+  };
+
+  const confirmDelete = () => {
+    if (!pendingDelete) return;
+    deleteBranch.mutate(pendingDelete.id, {
+      onSuccess: () => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); setPendingDelete(null); },
+    });
   };
 
   return (
@@ -217,6 +253,12 @@ function BranchesSection({ onClose }: { onClose: () => void }) {
                 onChangeText={v => setForm(f => ({ ...f, [field]: v }))}
               />
             ))}
+            {!!formError && (
+              <View style={section.errorBox}>
+                <Ionicons name="alert-circle-outline" size={13} color={Colors.danger} />
+                <Text style={section.errorText}>{formError}</Text>
+              </View>
+            )}
             <Pressable style={section.submitBtn} onPress={handleAdd} disabled={insertBranch.isPending}>
               {insertBranch.isPending ? <ActivityIndicator color="#000" /> : <Text style={section.submitBtnText}>Save Branch</Text>}
             </Pressable>
@@ -244,6 +286,12 @@ function BranchesSection({ onClose }: { onClose: () => void }) {
                     placeholder="Location"
                     placeholderTextColor={Colors.textMuted}
                   />
+                  {!!editError && (
+                    <View style={section.errorBox}>
+                      <Ionicons name="alert-circle-outline" size={13} color={Colors.danger} />
+                      <Text style={section.errorText}>{editError}</Text>
+                    </View>
+                  )}
                   <View style={{ flexDirection: 'row', gap: 8 }}>
                     <Pressable style={[section.submitBtn, { flex: 1 }]} onPress={handleUpdate} disabled={updateBranch.isPending}>
                       {updateBranch.isPending ? <ActivityIndicator color="#000" /> : <Text style={section.submitBtnText}>Update</Text>}
@@ -274,6 +322,18 @@ function BranchesSection({ onClose }: { onClose: () => void }) {
         })}
         {branches.length === 0 && !isLoading && <Text style={section.empty}>No branches yet</Text>}
       </ScrollView>
+
+      <ConfirmModal
+        visible={!!pendingDelete}
+        title="Delete Branch"
+        message={`Remove ${pendingDelete?.name}? This cannot be undone.`}
+        confirmLabel="Delete"
+        destructive
+        icon="trash-outline"
+        loading={deleteBranch.isPending}
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(null)}
+      />
     </View>
   );
 }
@@ -499,6 +559,40 @@ const section = StyleSheet.create({
   },
   cancelBtnText: { fontFamily: 'Inter_500Medium', fontSize: 14, color: Colors.textSecondary },
   empty: { fontFamily: 'Inter_400Regular', fontSize: 14, color: Colors.textMuted, textAlign: 'center', paddingVertical: 20 },
+  errorBox: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: Colors.dangerMuted, borderRadius: 10, padding: 10, borderWidth: 1, borderColor: Colors.danger + '40',
+  },
+  errorText: { fontFamily: 'Inter_400Regular', fontSize: 13, color: Colors.danger, flex: 1 },
+});
+
+const signOutModal = StyleSheet.create({
+  overlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.7)',
+    alignItems: 'center', justifyContent: 'center', padding: 24,
+  },
+  card: {
+    backgroundColor: Colors.card, borderRadius: 20, padding: 24,
+    width: '100%', maxWidth: 340, alignItems: 'center', gap: 12,
+    borderWidth: 1, borderColor: Colors.border,
+  },
+  iconWrap: {
+    width: 56, height: 56, borderRadius: 28,
+    backgroundColor: Colors.dangerMuted, alignItems: 'center', justifyContent: 'center', marginBottom: 4,
+  },
+  title: { fontFamily: 'Inter_700Bold', fontSize: 20, color: Colors.text },
+  message: { fontFamily: 'Inter_400Regular', fontSize: 14, color: Colors.textSecondary, textAlign: 'center' },
+  buttons: { flexDirection: 'row', gap: 10, width: '100%', marginTop: 8 },
+  cancelBtn: {
+    flex: 1, height: 46, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: Colors.secondary, borderWidth: 1, borderColor: Colors.border,
+  },
+  cancelText: { fontFamily: 'Inter_500Medium', fontSize: 15, color: Colors.textSecondary },
+  confirmBtn: {
+    flex: 1, height: 46, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: Colors.danger,
+  },
+  confirmText: { fontFamily: 'Inter_600SemiBold', fontSize: 15, color: '#fff' },
 });
 
 const analytics = StyleSheet.create({

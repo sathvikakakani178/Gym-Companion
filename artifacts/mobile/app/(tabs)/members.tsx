@@ -10,6 +10,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useMembers, useTrainers, useInsertMember, useUpdateMember, useDeleteMember, useInsertActivity, useBranches } from '@/lib/hooks';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { Badge } from '@/components/Badge';
+import { ConfirmModal } from '@/components/ConfirmModal';
 import { Colors } from '@/constants/colors';
 import * as Haptics from 'expo-haptics';
 
@@ -41,6 +42,8 @@ export default function MembersScreen() {
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState({ name: '', phone: '', plan: '', trainer_id: '', branch_id: '', expiry_date: '' });
   const [form, setForm] = useState({ name: '', phone: '', plan: 'Monthly', trainer_id: '', branch_id: '' });
+  const [formError, setFormError] = useState('');
+  const [pendingDelete, setPendingDelete] = useState<any>(null);
 
   const filtered = useMemo(() => {
     return members.filter(m => {
@@ -51,7 +54,8 @@ export default function MembersScreen() {
   }, [members, filter, search]);
 
   const handleAdd = () => {
-    if (!form.name || !form.phone) { Alert.alert('Error', 'Name and phone are required'); return; }
+    setFormError('');
+    if (!form.name || !form.phone) { setFormError('Name and phone are required'); return; }
     const joiningDate = new Date().toISOString().split('T')[0];
     const expiryDate = addDays(PLAN_DAYS[form.plan] || 30);
     insertMember.mutate({
@@ -67,7 +71,7 @@ export default function MembersScreen() {
         setForm({ name: '', phone: '', plan: 'Monthly', trainer_id: '', branch_id: '' });
         insertActivity.mutate({ gym_id: user?.gym_id || null, actor_name: user?.name || 'Owner', action: 'Added member', details: form.name });
       },
-      onError: (e: any) => Alert.alert('Error', e.message),
+      onError: (e: any) => setFormError(e.message),
     });
   };
 
@@ -83,20 +87,17 @@ export default function MembersScreen() {
     });
   };
 
-  const handleDelete = (m: any) => {
-    Alert.alert('Delete Member', `Remove ${m.name}?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete', style: 'destructive', onPress: () => {
-          deleteMember.mutate(m.id, {
-            onSuccess: () => {
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-              setSelected(null);
-            },
-          });
-        },
+  const handleDelete = (m: any) => { setPendingDelete(m); };
+
+  const confirmDelete = () => {
+    if (!pendingDelete) return;
+    deleteMember.mutate(pendingDelete.id, {
+      onSuccess: () => {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        setSelected(null);
+        setPendingDelete(null);
       },
-    ]);
+    });
   };
 
   const filterBtns: { key: typeof filter; label: string }[] = [
@@ -302,7 +303,7 @@ export default function MembersScreen() {
                             setSelected(null);
                             insertActivity.mutate({ gym_id: user?.gym_id || null, actor_name: user?.name || 'Owner', action: 'Updated member', details: editForm.name });
                           },
-                          onError: (e: any) => Alert.alert('Error', e.message),
+                          onError: (e: any) => setFormError(e.message),
                         }
                       );
                     }}
@@ -428,6 +429,12 @@ export default function MembersScreen() {
               </ScrollView>
             </View>
           )}
+          {!!formError && (
+            <View style={styles.errorBox}>
+              <Ionicons name="alert-circle-outline" size={14} color={Colors.danger} />
+              <Text style={styles.errorText}>{formError}</Text>
+            </View>
+          )}
           <Pressable
             style={[styles.submitBtn, insertMember.isPending && { opacity: 0.6 }]}
             onPress={handleAdd}
@@ -437,6 +444,18 @@ export default function MembersScreen() {
           </Pressable>
         </View>
       </Modal>
+
+      <ConfirmModal
+        visible={!!pendingDelete}
+        title="Delete Member"
+        message={`Remove ${pendingDelete?.name} from the gym? This cannot be undone.`}
+        confirmLabel="Delete"
+        destructive
+        icon="trash-outline"
+        loading={deleteMember.isPending}
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(null)}
+      />
     </View>
   );
 }
@@ -515,6 +534,11 @@ const styles = StyleSheet.create({
   },
   planChipActive: { borderColor: Colors.primary, backgroundColor: Colors.primaryMuted },
   planChipText: { fontFamily: 'Inter_500Medium', fontSize: 13, color: Colors.textSecondary },
+  errorBox: {
+    flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12,
+    backgroundColor: Colors.dangerMuted, borderRadius: 10, padding: 10, borderWidth: 1, borderColor: Colors.danger + '40',
+  },
+  errorText: { fontFamily: 'Inter_400Regular', fontSize: 13, color: Colors.danger, flex: 1 },
   submitBtn: {
     height: 50, backgroundColor: Colors.primary, borderRadius: 12,
     alignItems: 'center', justifyContent: 'center', marginTop: 8,
