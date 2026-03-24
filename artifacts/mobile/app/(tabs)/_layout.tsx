@@ -1,5 +1,5 @@
 import { BlurView } from "expo-blur";
-import { Redirect, Tabs } from "expo-router";
+import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { SymbolView } from "expo-symbols";
 import React from "react";
@@ -25,9 +25,7 @@ export default function TabLayout() {
     );
   }
 
-  if (!user) {
-    return <Redirect href="/login" />;
-  }
+  if (!user) return null;
 
   const isAdmin = user.role === "super_admin";
   const isOwner = user.role === "gym_owner";
