@@ -467,3 +467,54 @@ export function useInsertWhatsappLog() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['whatsapp_logs'] }),
   });
 }
+
+// ── WHATSAPP TEMPLATES ─────────────────────────────────────────────────
+export function useWhatsappTemplates(gymId?: string | null) {
+  return useQuery({
+    queryKey: ['whatsapp_templates', gymId],
+    enabled: !!gymId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('whatsapp_templates')
+        .select('*')
+        .eq('gym_id', gymId!)
+        .order('created_at');
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+}
+
+export function useUpdateWhatsappTemplate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...update }: { id: string; [key: string]: any }) => {
+      const { data, error } = await supabase
+        .from('whatsapp_templates')
+        .update(update)
+        .eq('id', id)
+        .select().single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['whatsapp_templates'] }),
+  });
+}
+
+// ── GYM SUBSCRIPTION (single gym) ─────────────────────────────────────
+export function useGymSubscriptionByGym(gymId?: string | null) {
+  return useQuery({
+    queryKey: ['gym_subscription_single', gymId],
+    enabled: !!gymId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('gym_subscriptions')
+        .select('*')
+        .eq('gym_id', gymId!)
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (error) throw error;
+      return data?.[0] ?? null;
+    },
+  });
+}

@@ -116,6 +116,12 @@ GymLeads Expo React Native mobile app (web-compatible via Expo Web). Connects di
 - **WhatsApp** — Message logs (whatsapp_logs) + Broadcast send form. Two tabs: Logs / Broadcast.
 - **Billing** — Invoice management (invoices table). Stats grid, create/mark-paid. Filter by status and gym.
 
+#### More screen sections (gym_owner)
+- **Analytics** — Lead funnel, member status, trainer counts for this gym
+- **WhatsApp** — Three tabs: Triggers (whatsapp_templates — view/toggle/edit message templates with variables like {member_name}), Broadcast (send to whatsapp_logs), Message Log (filtered to gym)
+- **My Plan** — Current plan banner with expiry countdown from gym_subscriptions. All 3 plan cards (Base/Classic/Pro) with features. "Contact platform team to change plan" note.
+- **Branches** — Read-only view (branches managed by platform)
+
 ### `scripts` (`@workspace/scripts`)
 
 Utility scripts package. Each script is a `.ts` file in `src/` with a corresponding npm script in `package.json`. Run scripts via `pnpm --filter @workspace/scripts run <script>`. Scripts can import any workspace package (e.g., `@workspace/db`) by adding it as a dependency in `scripts/package.json`.

@@ -15,6 +15,8 @@ import {
   useGymSubscriptions, useInsertGymSubscription, useUpdateGymSubscription, useDeleteGymSubscription,
   useModules, useGymModules, useUpsertGymModule,
   useWhatsappLogs, useInsertWhatsappLog,
+  useWhatsappTemplates, useUpdateWhatsappTemplate,
+  useGymSubscriptionByGym,
 } from '@/lib/hooks';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { ConfirmModal } from '@/components/ConfirmModal';
@@ -62,6 +64,8 @@ export default function MoreScreen() {
   if (isOwner) {
     sections.push(
       { key: 'analytics', label: 'Analytics', icon: 'bar-chart-outline', color: Colors.info },
+      { key: 'whatsapp_owner', label: 'WhatsApp', icon: 'logo-whatsapp', color: '#25D366' },
+      { key: 'my_plan', label: 'My Plan', icon: 'layers-outline', color: Colors.purple },
       { key: 'branches', label: 'Branches', icon: 'map-outline', color: Colors.primary },
     );
   }
@@ -148,6 +152,12 @@ export default function MoreScreen() {
       </Modal>
       <Modal visible={activeSection === 'billing'} animationType="slide" onRequestClose={() => setActiveSection(null)}>
         <BillingSection onClose={() => setActiveSection(null)} />
+      </Modal>
+      <Modal visible={activeSection === 'whatsapp_owner'} animationType="slide" onRequestClose={() => setActiveSection(null)}>
+        <WhatsAppOwnerSection onClose={() => setActiveSection(null)} />
+      </Modal>
+      <Modal visible={activeSection === 'my_plan'} animationType="slide" onRequestClose={() => setActiveSection(null)}>
+        <MyPlanSection onClose={() => setActiveSection(null)} />
       </Modal>
 
       {/* Custom sign-out confirmation (replaces Alert.alert which is blocked in iframes on web) */}
@@ -1166,6 +1176,418 @@ function BillingSection({ onClose }: { onClose: () => void }) {
           );
         })}
         {filtered.length === 0 && !isLoading && <Text style={section.empty}>No invoices found</Text>}
+      </ScrollView>
+    </View>
+  );
+}
+
+// ─── WHATSAPP OWNER SECTION ───────────────────────────────────────────────────
+const TRIGGER_LABEL: Record<string, { label: string; desc: string; tag: string; tagColor: string }> = {
+  '3_days_before': { label: '3 Days Before Expiry', desc: 'Sent automatically at 9 AM, 3 days before membership expires', tag: 'Day -3', tagColor: Colors.info },
+  '1_day_before': { label: '1 Day Before Expiry', desc: 'Sent automatically at 9 AM, 1 day before membership expires', tag: 'Day -1', tagColor: Colors.warning },
+  'expiry_day': { label: 'On Expiry Day', desc: 'Sent automatically at 9 AM on the expiry date', tag: 'Day 0', tagColor: Colors.danger },
+  'day_-3': { label: '3 Days Before Expiry', desc: 'Sent 3 days before membership expires', tag: 'Day -3', tagColor: Colors.info },
+  'day_-1': { label: '1 Day Before Expiry', desc: 'Sent 1 day before membership expires', tag: 'Day -1', tagColor: Colors.warning },
+  'day_0': { label: 'On Expiry Day', desc: 'Sent on the expiry date', tag: 'Day 0', tagColor: Colors.danger },
+};
+
+function getTriggerMeta(type: string) {
+  return TRIGGER_LABEL[type] ?? { label: type, desc: 'Automated trigger', tag: type.toUpperCase(), tagColor: Colors.textMuted };
+}
+
+function WhatsAppOwnerSection({ onClose }: { onClose: () => void }) {
+  const { user } = useAuth();
+  const insets = useSafeAreaInsets();
+  const gymId = user?.gym_id;
+  const { data: members = [] } = useMembers(gymId);
+  const { data: templates = [], isLoading: loadingTemplates } = useWhatsappTemplates(gymId);
+  const { data: logs = [], isLoading: loadingLogs } = useWhatsappLogs();
+  const updateTemplate = useUpdateWhatsappTemplate();
+  const insertLog = useInsertWhatsappLog();
+
+  const [tab, setTab] = useState<'triggers' | 'broadcast' | 'log'>('triggers');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editMsg, setEditMsg] = useState('');
+  const [editError, setEditError] = useState('');
+  const [broadcastMsg, setBroadcastMsg] = useState('');
+  const [broadcastPhone, setBroadcastPhone] = useState('');
+  const [broadcastError, setBroadcastError] = useState('');
+  const [broadcastSuccess, setBroadcastSuccess] = useState(false);
+
+  const gymLogs = logs.filter((l: any) => l.gym_id === gymId);
+
+  const handleToggle = (t: any) => {
+    updateTemplate.mutate({ id: t.id, is_enabled: !t.is_enabled }, {
+      onSuccess: () => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success),
+    });
+  };
+
+  const handleSaveEdit = () => {
+    setEditError('');
+    if (!editMsg.trim()) { setEditError('Message cannot be empty'); return; }
+    updateTemplate.mutate({ id: editingId!, message: editMsg.trim() }, {
+      onSuccess: () => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); setEditingId(null); },
+      onError: (e: any) => setEditError(e.message),
+    });
+  };
+
+  const handleBroadcast = () => {
+    setBroadcastError('');
+    setBroadcastSuccess(false);
+    if (!broadcastMsg.trim()) { setBroadcastError('Message is required'); return; }
+    if (!gymId) { setBroadcastError('Gym not found'); return; }
+    insertLog.mutate(
+      { gym_id: gymId, message: broadcastMsg.trim(), phone: broadcastPhone.trim() || undefined, status: 'sent' },
+      {
+        onSuccess: () => {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          setBroadcastMsg('');
+          setBroadcastPhone('');
+          setBroadcastSuccess(true);
+        },
+        onError: (e: any) => setBroadcastError(e.message),
+      }
+    );
+  };
+
+  return (
+    <View style={{ flex: 1, backgroundColor: Colors.background }}>
+      <SectionHeader title="WhatsApp" onClose={onClose} />
+
+      <View style={{ flexDirection: 'row', paddingHorizontal: 16, paddingTop: 12, gap: 6 }}>
+        {([
+          { key: 'triggers', label: 'Triggers' },
+          { key: 'broadcast', label: 'Broadcast' },
+          { key: 'log', label: 'Message Log' },
+        ] as const).map(t => (
+          <Pressable
+            key={t.key}
+            style={{ flex: 1, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center', borderWidth: 1,
+              backgroundColor: tab === t.key ? '#25D36622' : Colors.secondary,
+              borderColor: tab === t.key ? '#25D366' : Colors.border }}
+            onPress={() => setTab(t.key)}
+          >
+            <Text style={{ fontFamily: 'Inter_600SemiBold', fontSize: 12, color: tab === t.key ? '#25D366' : Colors.textSecondary }}>{t.label}</Text>
+          </Pressable>
+        ))}
+      </View>
+
+      {tab === 'triggers' && (
+        <ScrollView contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: insets.bottom + 20 }}>
+          <View style={[section.card, { backgroundColor: Colors.secondary, borderColor: Colors.border }]}>
+            <View style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-start' }}>
+              <Ionicons name="information-circle-outline" size={16} color={Colors.info} style={{ marginTop: 1 }} />
+              <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 13, color: Colors.textSecondary, flex: 1, lineHeight: 18 }}>
+                These messages are sent <Text style={{ fontFamily: 'Inter_600SemiBold', color: Colors.text }}>automatically</Text> via WhatsApp to members before their membership expires. Use variables like <Text style={{ fontFamily: 'Inter_600SemiBold', color: '#25D366' }}>{'{member_name}'}</Text> which are replaced with real data when sent.
+              </Text>
+            </View>
+          </View>
+
+          {loadingTemplates && <ActivityIndicator color="#25D366" />}
+
+          {templates.map((t: any) => {
+            const meta = getTriggerMeta(t.trigger_type ?? '');
+            const isEditing = editingId === t.id;
+            return (
+              <View key={t.id} style={section.card}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <View style={{ backgroundColor: meta.tagColor + '22', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: meta.tagColor + '55' }}>
+                    <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 11, color: meta.tagColor }}>{meta.tag}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={section.name}>{meta.label}</Text>
+                    <Text style={[section.sub, { fontSize: 11 }]}>{meta.desc}</Text>
+                  </View>
+                  {!isEditing && (
+                    <Pressable onPress={() => { setEditingId(t.id); setEditMsg(t.message ?? ''); setEditError(''); }}>
+                      <Ionicons name="pencil-outline" size={17} color={Colors.primary} style={{ marginRight: 8 }} />
+                    </Pressable>
+                  )}
+                  {updateTemplate.isPending && editingId === null ? (
+                    <ActivityIndicator size="small" color="#25D366" />
+                  ) : (
+                    <Pressable
+                      style={{ width: 46, height: 26, borderRadius: 13, backgroundColor: t.is_enabled ? '#25D366' : Colors.secondary, borderWidth: 1, borderColor: t.is_enabled ? '#25D366' : Colors.border, justifyContent: 'center', paddingHorizontal: 2 }}
+                      onPress={() => handleToggle(t)}
+                    >
+                      <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: t.is_enabled ? '#000' : Colors.textMuted, alignSelf: t.is_enabled ? 'flex-end' : 'flex-start' }} />
+                    </Pressable>
+                  )}
+                </View>
+
+                {isEditing ? (
+                  <View style={{ gap: 8 }}>
+                    <TextInput
+                      style={[section.input, { height: 90, textAlignVertical: 'top', paddingTop: 10 }]}
+                      value={editMsg}
+                      onChangeText={setEditMsg}
+                      multiline
+                      placeholder="Enter message template..."
+                      placeholderTextColor={Colors.textMuted}
+                    />
+                    <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 11, color: Colors.textMuted }}>
+                      Variables: {'{member_name}'}, {'{gym_name}'}, {'{expiry_date}'}
+                    </Text>
+                    {!!editError && (
+                      <View style={section.errorBox}>
+                        <Ionicons name="alert-circle-outline" size={13} color={Colors.danger} />
+                        <Text style={section.errorText}>{editError}</Text>
+                      </View>
+                    )}
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                      <Pressable style={[section.submitBtn, { flex: 1, backgroundColor: '#25D366' }]} onPress={handleSaveEdit} disabled={updateTemplate.isPending}>
+                        {updateTemplate.isPending ? <ActivityIndicator color="#fff" /> : <Text style={[section.submitBtnText, { color: '#fff' }]}>Save</Text>}
+                      </Pressable>
+                      <Pressable style={[section.cancelBtn, { flex: 1 }]} onPress={() => setEditingId(null)}>
+                        <Text style={section.cancelBtnText}>Cancel</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                ) : (
+                  <View style={{ backgroundColor: Colors.secondary, borderRadius: 8, padding: 10 }}>
+                    <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 13, color: Colors.text, lineHeight: 18 }}>{t.message || '(No message set)'}</Text>
+                  </View>
+                )}
+              </View>
+            );
+          })}
+
+          {templates.length === 0 && !loadingTemplates && (
+            <Text style={section.empty}>No triggers configured for this gym</Text>
+          )}
+        </ScrollView>
+      )}
+
+      {tab === 'broadcast' && (
+        <ScrollView contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: insets.bottom + 20 }}>
+          <View style={[section.card, { gap: 10 }]}>
+            <Text style={analytics.sectionTitle}>Send Broadcast Message</Text>
+            <TextInput
+              style={section.input}
+              placeholder="Phone Number (optional)"
+              placeholderTextColor={Colors.textMuted}
+              keyboardType="phone-pad"
+              value={broadcastPhone}
+              onChangeText={setBroadcastPhone}
+            />
+            <TextInput
+              style={[section.input, { height: 100, textAlignVertical: 'top', paddingTop: 10 }]}
+              placeholder={`Message * (use {member_name}, {gym_name}, {expiry_date})`}
+              placeholderTextColor={Colors.textMuted}
+              multiline
+              value={broadcastMsg}
+              onChangeText={setBroadcastMsg}
+            />
+            {!!broadcastError && (
+              <View style={section.errorBox}>
+                <Ionicons name="alert-circle-outline" size={13} color={Colors.danger} />
+                <Text style={section.errorText}>{broadcastError}</Text>
+              </View>
+            )}
+            {broadcastSuccess && (
+              <View style={{ flexDirection: 'row', gap: 8, backgroundColor: Colors.primaryMuted, borderRadius: 10, padding: 10, borderWidth: 1, borderColor: Colors.primary + '40' }}>
+                <Ionicons name="checkmark-circle-outline" size={16} color={Colors.primary} />
+                <Text style={{ fontFamily: 'Inter_500Medium', fontSize: 13, color: Colors.primary }}>Message logged successfully!</Text>
+              </View>
+            )}
+            <Pressable
+              style={[section.submitBtn, { backgroundColor: '#25D366' }]}
+              onPress={handleBroadcast}
+              disabled={insertLog.isPending}
+            >
+              {insertLog.isPending
+                ? <ActivityIndicator color="#fff" />
+                : (
+                  <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                    <Ionicons name="logo-whatsapp" size={16} color="#fff" />
+                    <Text style={[section.submitBtnText, { color: '#fff' }]}>Send Broadcast</Text>
+                  </View>
+                )}
+            </Pressable>
+            <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 11, color: Colors.textMuted, textAlign: 'center' }}>
+              {members.length} members in this gym
+            </Text>
+          </View>
+        </ScrollView>
+      )}
+
+      {tab === 'log' && (
+        <ScrollView contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: insets.bottom + 20 }}>
+          {loadingLogs && <ActivityIndicator color="#25D366" />}
+          {gymLogs.map((log: any) => (
+            <View key={log.id} style={section.card}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                <Ionicons name="logo-whatsapp" size={16} color="#25D366" />
+                <Text style={[section.name, { flex: 1 }]}>
+                  {log.phone ? log.phone : 'Broadcast'}
+                </Text>
+                <StatusBadge status={log.status ?? 'sent'} map={WA_STATUS_MAP} />
+              </View>
+              <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 13, color: Colors.textSecondary, lineHeight: 18 }} numberOfLines={3}>{log.message}</Text>
+              <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 11, color: Colors.textMuted, marginTop: 4 }}>{fmtDate(log.created_at)}</Text>
+            </View>
+          ))}
+          {gymLogs.length === 0 && !loadingLogs && <Text style={section.empty}>No messages sent yet</Text>}
+        </ScrollView>
+      )}
+    </View>
+  );
+}
+
+// ─── MY PLAN SECTION ──────────────────────────────────────────────────────────
+const ALL_PLANS = [
+  {
+    value: 'base',
+    label: 'Base',
+    price: '₹999',
+    period: '/mo',
+    yearlyPrice: '₹9,990/year',
+    tagline: 'WhatsApp lead management, trial booking, fee reminders, website replies',
+    features: [
+      'WhatsApp Lead Management',
+      'Trial Booking (3-step)',
+      'Fee Reminder Automation',
+      'Website Replies Setup',
+      'Lead Pipeline (Kanban)',
+      'Member Management',
+      'Trainer Login',
+      'Basic Analytics',
+    ],
+    color: Colors.info,
+  },
+  {
+    value: 'classic',
+    label: 'Classic',
+    price: '₹1,299',
+    period: '/mo',
+    yearlyPrice: '₹12,990/year',
+    tagline: 'Everything in Base plus Instagram DM lead capture',
+    features: [
+      'Everything in Base',
+      'Instagram DM Lead Capture',
+      'Instagram Auto-Reply',
+    ],
+    color: Colors.purple,
+  },
+  {
+    value: 'pro',
+    label: 'Pro',
+    price: '₹1,999',
+    period: '/mo',
+    yearlyPrice: '₹19,990/year',
+    tagline: 'Everything in Classic plus diet, client tracking and WhatsApp bot',
+    features: [
+      'Everything in Classic',
+      'Diet Plan Automation (daily 7 AM)',
+      'Client Progress Tracking',
+      'Bot WhatsApp Integration',
+      'Message limit applies',
+    ],
+    color: Colors.warning,
+  },
+];
+
+function MyPlanSection({ onClose }: { onClose: () => void }) {
+  const { user } = useAuth();
+  const insets = useSafeAreaInsets();
+  const gymId = user?.gym_id;
+  const { data: gyms = [] } = useGyms();
+  const { data: subscription } = useGymSubscriptionByGym(gymId);
+
+  const gym = gyms.find((g: any) => g.id === gymId);
+  const currentPlan = gym?.plan ?? 'base';
+  const currentPlanInfo = ALL_PLANS.find(p => p.value === currentPlan) ?? ALL_PLANS[0];
+
+  const daysLeft = subscription?.end_date
+    ? Math.ceil((new Date(subscription.end_date).getTime() - Date.now()) / 86400000)
+    : null;
+
+  const isExpiringSoon = daysLeft !== null && daysLeft <= 30 && daysLeft > 0;
+  const isExpired = daysLeft !== null && daysLeft <= 0;
+
+  return (
+    <View style={{ flex: 1, backgroundColor: Colors.background }}>
+      <SectionHeader title="My Plan" onClose={onClose} />
+      <ScrollView contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: insets.bottom + 20 }}>
+        {(isExpiringSoon || isExpired) && (
+          <View style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start', backgroundColor: Colors.warningMuted, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: Colors.warning + '55' }}>
+            <Ionicons name="warning-outline" size={18} color={Colors.warning} style={{ marginTop: 1 }} />
+            <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 13, color: Colors.warning, flex: 1, lineHeight: 18 }}>
+              {isExpired
+                ? 'Your subscription has expired. Contact the platform team to renew.'
+                : `Your subscription expires in ${daysLeft} day${daysLeft === 1 ? '' : 's'}. Contact the platform team to renew.`}
+            </Text>
+          </View>
+        )}
+
+        <View style={[section.card, { borderTopWidth: 2, borderTopColor: currentPlanInfo.color }]}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <View style={{ backgroundColor: currentPlanInfo.color + '22', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 3, borderWidth: 1, borderColor: currentPlanInfo.color + '55' }}>
+              <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 11, color: currentPlanInfo.color }}>Current Plan</Text>
+            </View>
+          </View>
+          <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 22, color: Colors.text }}>{currentPlanInfo.label}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 2 }}>
+            <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 20, color: currentPlanInfo.color }}>{currentPlanInfo.price}</Text>
+            <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 14, color: Colors.textSecondary }}>{currentPlanInfo.period}</Text>
+          </View>
+          <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 12, color: Colors.textMuted }}>{currentPlanInfo.yearlyPrice}</Text>
+          {subscription?.end_date && (
+            <Text style={{ fontFamily: 'Inter_500Medium', fontSize: 12, color: daysLeft !== null && daysLeft <= 30 ? Colors.warning : Colors.textSecondary, marginTop: 4 }}>
+              {isExpired ? 'Expired' : `Renews ${fmtDate(subscription.end_date)}`}
+              {daysLeft !== null && daysLeft > 0 ? ` · ${daysLeft}d left` : ''}
+            </Text>
+          )}
+          <View style={{ marginTop: 8, gap: 4 }}>
+            <Text style={{ fontFamily: 'Inter_600SemiBold', fontSize: 12, color: Colors.textSecondary, marginBottom: 4 }}>INCLUDED FEATURES</Text>
+            {currentPlanInfo.features.map(f => (
+              <View key={f} style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                <Ionicons name="checkmark-circle" size={15} color={currentPlanInfo.color} />
+                <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 13, color: Colors.text }}>{f}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+
+        <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 16, color: Colors.text, marginTop: 4 }}>Available Plans</Text>
+
+        {ALL_PLANS.map(plan => {
+          const isCurrent = plan.value === currentPlan;
+          return (
+            <View key={plan.value} style={[section.card, isCurrent && { borderColor: plan.color, borderWidth: 2 }]}>
+              {isCurrent && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                  <Ionicons name="checkmark-circle" size={14} color={plan.color} />
+                  <Text style={{ fontFamily: 'Inter_600SemiBold', fontSize: 11, color: plan.color }}>Current Plan</Text>
+                </View>
+              )}
+              <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' }}>
+                <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 18, color: Colors.text }}>{plan.label}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 1 }}>
+                  <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 16, color: plan.color }}>{plan.price}</Text>
+                  <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 12, color: Colors.textSecondary }}>{plan.period}</Text>
+                </View>
+              </View>
+              <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 12, color: Colors.textMuted }}>{plan.yearlyPrice}</Text>
+              <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 12, color: Colors.textSecondary, marginTop: 2 }}>{plan.tagline}</Text>
+              <View style={{ marginTop: 8, gap: 4 }}>
+                {plan.features.map(f => (
+                  <View key={f} style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                    <Ionicons name="checkmark" size={14} color={plan.color} />
+                    <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 13, color: Colors.text }}>{f}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          );
+        })}
+
+        <View style={{ backgroundColor: Colors.secondary, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: Colors.border, alignItems: 'center', gap: 4 }}>
+          <Ionicons name="information-circle-outline" size={18} color={Colors.textMuted} />
+          <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 13, color: Colors.textMuted, textAlign: 'center' }}>
+            To change your plan, contact the platform team.
+          </Text>
+        </View>
       </ScrollView>
     </View>
   );
