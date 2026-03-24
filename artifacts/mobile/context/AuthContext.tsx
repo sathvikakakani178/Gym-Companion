@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { Platform } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import type { Session } from '@supabase/supabase-js';
 
@@ -76,6 +77,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
+    let webCleanup: (() => void) | null = null;
+
+    // Silently handle stale refresh token errors thrown by Supabase's
+    // background auto-refresh. On web: catch unhandledrejection. On native:
+    // intercept via ErrorUtils so the red error overlay never appears.
+    const isTokenError = (msg: string) =>
+      msg?.includes('Refresh Token') ||
+      msg?.includes('refresh_token') ||
+      msg?.includes('AuthApiError');
+
+    if (Platform.OS !== 'web') {
+      const prevHandler = (global as any).ErrorUtils?.getGlobalHandler?.();
+      const nativeHandler = (error: Error, isFatal?: boolean) => {
+        if (isTokenError(error?.message ?? '')) {
+          supabase.auth.signOut().catch(() => {});
+          return;
+        }
+        prevHandler?.(error, isFatal);
+      };
+      (global as any).ErrorUtils?.setGlobalHandler?.(nativeHandler);
+    } else {
+      const webHandler = (event: PromiseRejectionEvent) => {
+        const msg: string = event.reason?.message ?? String(event.reason ?? '');
+        if (isTokenError(msg)) {
+          event.preventDefault();
+          supabase.auth.signOut().catch(() => {});
+        }
+      };
+      window.addEventListener('unhandledrejection', webHandler);
+      webCleanup = () => window.removeEventListener('unhandledrejection', webHandler);
+    }
 
     withTimeout(supabase.auth.getSession(), 10000, 'Session check timed out')
       .then(async ({ data: { session } }) => {
@@ -86,8 +118,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (!cancelled) setUser(profile);
         }
       })
-      .catch((err) => {
+      .catch(async (err) => {
         console.warn('Auth init error:', err.message);
+        // Invalid/expired refresh token — clear stale session from storage
+        if (
+          err.message?.includes('Refresh Token') ||
+          err.message?.includes('refresh_token') ||
+          err.message?.includes('Invalid')
+        ) {
+          await supabase.auth.signOut().catch(() => {});
+        }
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -95,6 +135,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (cancelled) return;
+
+      // Token refresh failed — sign out to clear stale tokens
+      if (event === 'TOKEN_REFRESHED' && !session) {
+        await supabase.auth.signOut().catch(() => {});
+        setUser(null);
+        setSession(null);
+        setLoading(false);
+        return;
+      }
+
       setSession(session);
       if (session) {
         const profile = await loadProfile(session);
@@ -108,6 +158,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
       subscription.unsubscribe();
+      webCleanup?.();
     };
   }, []);
 
