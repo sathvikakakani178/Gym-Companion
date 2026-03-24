@@ -11,6 +11,10 @@ import { useAuth } from '@/context/AuthContext';
 import {
   useLeads, useMembers, useTrainers, useBranches, useInsertBranch, useUpdateBranch,
   useDeleteBranch, useInsertActivity, useGyms,
+  useInvoices, useInsertInvoice, useUpdateInvoice,
+  useGymSubscriptions, useInsertGymSubscription, useUpdateGymSubscription, useDeleteGymSubscription,
+  useModules, useGymModules, useUpsertGymModule,
+  useWhatsappLogs, useInsertWhatsappLog,
 } from '@/lib/hooks';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { ConfirmModal } from '@/components/ConfirmModal';
@@ -48,6 +52,10 @@ export default function MoreScreen() {
     sections.push(
       { key: 'gym_analytics', label: 'Gym Analytics', icon: 'bar-chart-outline', color: Colors.info },
       { key: 'branches', label: 'Branches', icon: 'map-outline', color: Colors.primary },
+      { key: 'plans', label: 'Plans', icon: 'layers-outline', color: Colors.purple },
+      { key: 'modules', label: 'Modules', icon: 'grid-outline', color: Colors.warning },
+      { key: 'whatsapp', label: 'WhatsApp', icon: 'logo-whatsapp', color: '#25D366' },
+      { key: 'billing', label: 'Billing', icon: 'card-outline', color: Colors.info },
     );
   }
 
@@ -128,6 +136,18 @@ export default function MoreScreen() {
       </Modal>
       <Modal visible={activeSection === 'gym_analytics'} animationType="slide" onRequestClose={() => setActiveSection(null)}>
         <GymAnalyticsSection onClose={() => setActiveSection(null)} />
+      </Modal>
+      <Modal visible={activeSection === 'plans'} animationType="slide" onRequestClose={() => setActiveSection(null)}>
+        <PlansSection onClose={() => setActiveSection(null)} />
+      </Modal>
+      <Modal visible={activeSection === 'modules'} animationType="slide" onRequestClose={() => setActiveSection(null)}>
+        <ModulesSection onClose={() => setActiveSection(null)} />
+      </Modal>
+      <Modal visible={activeSection === 'whatsapp'} animationType="slide" onRequestClose={() => setActiveSection(null)}>
+        <WhatsAppSection onClose={() => setActiveSection(null)} />
+      </Modal>
+      <Modal visible={activeSection === 'billing'} animationType="slide" onRequestClose={() => setActiveSection(null)}>
+        <BillingSection onClose={() => setActiveSection(null)} />
       </Modal>
 
       {/* Custom sign-out confirmation (replaces Alert.alert which is blocked in iframes on web) */}
@@ -484,6 +504,682 @@ function GymAnalyticsSection({ onClose }: { onClose: () => void }) {
     </View>
   );
 }
+
+// ─── helper ───────────────────────────────────────────────────────────────────
+function fmtDate(d?: string | null) {
+  if (!d) return '—';
+  return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function StatusBadge({ status, map }: { status: string; map: Record<string, { label: string; color: string }> }) {
+  const s = map[status] ?? { label: status, color: Colors.textMuted };
+  return (
+    <View style={{ backgroundColor: s.color + '22', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2, borderWidth: 1, borderColor: s.color + '55' }}>
+      <Text style={{ fontFamily: 'Inter_600SemiBold', fontSize: 11, color: s.color, textTransform: 'capitalize' }}>{s.label}</Text>
+    </View>
+  );
+}
+
+function GymPicker({ gyms, value, onChange }: { gyms: any[]; value: string; onChange: (id: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const selected = gyms.find(g => g.id === value);
+  return (
+    <View>
+      <Pressable
+        style={[section.input, { justifyContent: 'space-between', flexDirection: 'row', alignItems: 'center', height: 44 }]}
+        onPress={() => setOpen(!open)}
+      >
+        <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 14, color: selected ? Colors.text : Colors.textMuted }}>
+          {selected ? selected.name : 'Select Gym *'}
+        </Text>
+        <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={16} color={Colors.textMuted} />
+      </Pressable>
+      {open && (
+        <View style={{ backgroundColor: Colors.secondary, borderRadius: 10, borderWidth: 1, borderColor: Colors.border, marginTop: 4, maxHeight: 180 }}>
+          <ScrollView nestedScrollEnabled>
+            {gyms.map(g => (
+              <Pressable
+                key={g.id}
+                style={{ paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: Colors.border }}
+                onPress={() => { onChange(g.id); setOpen(false); }}
+              >
+                <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 14, color: g.id === value ? Colors.primary : Colors.text }}>{g.name}</Text>
+              </Pressable>
+            ))}
+            {gyms.length === 0 && <Text style={{ padding: 12, color: Colors.textMuted, fontFamily: 'Inter_400Regular', fontSize: 13 }}>No gyms found</Text>}
+          </ScrollView>
+        </View>
+      )}
+    </View>
+  );
+}
+
+// ─── PLANS SECTION ────────────────────────────────────────────────────────────
+const PLAN_OPTIONS = [
+  { value: 'base', label: 'Base', price: '₹999/mo', color: Colors.info },
+  { value: 'classic', label: 'Classic', price: '₹1,299/mo', color: Colors.purple },
+  { value: 'pro', label: 'Pro', price: '₹1,999/mo', color: Colors.warning },
+];
+
+const SUB_STATUS_MAP: Record<string, { label: string; color: string }> = {
+  active: { label: 'Active', color: Colors.primary },
+  expired: { label: 'Expired', color: Colors.danger },
+  pending: { label: 'Pending', color: Colors.warning },
+  cancelled: { label: 'Cancelled', color: Colors.textMuted },
+};
+
+function PlansSection({ onClose }: { onClose: () => void }) {
+  const insets = useSafeAreaInsets();
+  const { data: gyms = [] } = useGyms();
+  const { data: subs = [], isLoading } = useGymSubscriptions();
+  const insertSub = useInsertGymSubscription();
+  const updateSub = useUpdateGymSubscription();
+  const deleteSub = useDeleteGymSubscription();
+
+  const [showAdd, setShowAdd] = useState(false);
+  const [form, setForm] = useState({ gym_id: '', plan_id: 'base', start_date: '', end_date: '', status: 'active' });
+  const [formError, setFormError] = useState('');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({ plan_id: '', start_date: '', end_date: '', status: '' });
+  const [editError, setEditError] = useState('');
+  const [pendingDelete, setPendingDelete] = useState<any>(null);
+  const [statusFilter, setStatusFilter] = useState('all');
+
+  const planCounts = PLAN_OPTIONS.reduce<Record<string, number>>((acc, p) => {
+    acc[p.value] = subs.filter((s: any) => s.plan_id === p.value).length;
+    return acc;
+  }, {});
+
+  const filtered = statusFilter === 'all' ? subs : subs.filter((s: any) => s.status === statusFilter);
+
+  const handleAdd = () => {
+    setFormError('');
+    if (!form.gym_id) { setFormError('Please select a gym'); return; }
+    if (!form.start_date || !form.end_date) { setFormError('Start and end dates are required (YYYY-MM-DD)'); return; }
+    insertSub.mutate(
+      { gym_id: form.gym_id, plan_id: form.plan_id, start_date: form.start_date, end_date: form.end_date, status: form.status },
+      {
+        onSuccess: () => {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          setShowAdd(false);
+          setForm({ gym_id: '', plan_id: 'base', start_date: '', end_date: '', status: 'active' });
+        },
+        onError: (e: any) => setFormError(e.message),
+      }
+    );
+  };
+
+  const handleUpdate = () => {
+    setEditError('');
+    if (!editingId) return;
+    updateSub.mutate(
+      { id: editingId, plan_id: editForm.plan_id, start_date: editForm.start_date, end_date: editForm.end_date, status: editForm.status },
+      {
+        onSuccess: () => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); setEditingId(null); },
+        onError: (e: any) => setEditError(e.message),
+      }
+    );
+  };
+
+  return (
+    <View style={{ flex: 1, backgroundColor: Colors.background }}>
+      <SectionHeader title="Plans" onClose={onClose} />
+      <ScrollView contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: insets.bottom + 20 }}>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          {PLAN_OPTIONS.map(p => (
+            <View key={p.value} style={[planSt.planCard, { borderTopColor: p.color, flex: 1 }]}>
+              <Text style={[planSt.planLabel, { color: p.color }]}>{p.label}</Text>
+              <Text style={planSt.planPrice}>{p.price}</Text>
+              <Text style={planSt.planCount}>{planCounts[p.value] ?? 0} gyms</Text>
+            </View>
+          ))}
+        </View>
+
+        <Pressable
+          style={[section.addBtn, showAdd && { backgroundColor: Colors.secondary }]}
+          onPress={() => setShowAdd(!showAdd)}
+        >
+          <Ionicons name={showAdd ? 'close-outline' : 'add'} size={18} color={Colors.purple} />
+          <Text style={[section.addBtnText, { color: Colors.purple }]}>{showAdd ? 'Cancel' : 'Add Subscription'}</Text>
+        </Pressable>
+
+        {showAdd && (
+          <View style={section.formCard}>
+            <GymPicker gyms={gyms} value={form.gym_id} onChange={id => setForm(f => ({ ...f, gym_id: id }))} />
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              {PLAN_OPTIONS.map(p => (
+                <Pressable
+                  key={p.value}
+                  style={{ flex: 1, height: 36, borderRadius: 8, borderWidth: 1, alignItems: 'center', justifyContent: 'center',
+                    backgroundColor: form.plan_id === p.value ? p.color + '22' : Colors.secondary,
+                    borderColor: form.plan_id === p.value ? p.color : Colors.border }}
+                  onPress={() => setForm(f => ({ ...f, plan_id: p.value }))}
+                >
+                  <Text style={{ fontFamily: 'Inter_500Medium', fontSize: 13, color: form.plan_id === p.value ? p.color : Colors.textSecondary }}>{p.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <TextInput style={section.input} placeholder="Start Date (YYYY-MM-DD) *" placeholderTextColor={Colors.textMuted} value={form.start_date} onChangeText={v => setForm(f => ({ ...f, start_date: v }))} />
+            <TextInput style={section.input} placeholder="End Date (YYYY-MM-DD) *" placeholderTextColor={Colors.textMuted} value={form.end_date} onChangeText={v => setForm(f => ({ ...f, end_date: v }))} />
+            {!!formError && (
+              <View style={section.errorBox}>
+                <Ionicons name="alert-circle-outline" size={13} color={Colors.danger} />
+                <Text style={section.errorText}>{formError}</Text>
+              </View>
+            )}
+            <Pressable style={section.submitBtn} onPress={handleAdd} disabled={insertSub.isPending}>
+              {insertSub.isPending ? <ActivityIndicator color="#000" /> : <Text style={section.submitBtnText}>Add Subscription</Text>}
+            </Pressable>
+          </View>
+        )}
+
+        <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+          {['all', 'active', 'expired', 'pending', 'cancelled'].map(s => (
+            <Pressable
+              key={s}
+              style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1,
+                backgroundColor: statusFilter === s ? Colors.purple + '22' : Colors.secondary,
+                borderColor: statusFilter === s ? Colors.purple : Colors.border }}
+              onPress={() => setStatusFilter(s)}
+            >
+              <Text style={{ fontFamily: 'Inter_500Medium', fontSize: 12, color: statusFilter === s ? Colors.purple : Colors.textSecondary, textTransform: 'capitalize' }}>{s}</Text>
+            </Pressable>
+          ))}
+        </View>
+
+        {isLoading && <ActivityIndicator color={Colors.purple} />}
+        {filtered.map((sub: any) => {
+          const gymName = sub.gym?.name ?? 'Unknown Gym';
+          const plan = PLAN_OPTIONS.find(p => p.value === sub.plan_id);
+          const isEditing = editingId === sub.id;
+          return (
+            <View key={sub.id} style={section.card}>
+              {isEditing ? (
+                <View style={{ gap: 8 }}>
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    {PLAN_OPTIONS.map(p => (
+                      <Pressable
+                        key={p.value}
+                        style={{ flex: 1, height: 36, borderRadius: 8, borderWidth: 1, alignItems: 'center', justifyContent: 'center',
+                          backgroundColor: editForm.plan_id === p.value ? p.color + '22' : Colors.secondary,
+                          borderColor: editForm.plan_id === p.value ? p.color : Colors.border }}
+                        onPress={() => setEditForm(f => ({ ...f, plan_id: p.value }))}
+                      >
+                        <Text style={{ fontFamily: 'Inter_500Medium', fontSize: 13, color: editForm.plan_id === p.value ? p.color : Colors.textSecondary }}>{p.label}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                  <TextInput style={section.input} value={editForm.start_date} onChangeText={v => setEditForm(f => ({ ...f, start_date: v }))} placeholder="Start Date (YYYY-MM-DD)" placeholderTextColor={Colors.textMuted} />
+                  <TextInput style={section.input} value={editForm.end_date} onChangeText={v => setEditForm(f => ({ ...f, end_date: v }))} placeholder="End Date (YYYY-MM-DD)" placeholderTextColor={Colors.textMuted} />
+                  {!!editError && (
+                    <View style={section.errorBox}>
+                      <Ionicons name="alert-circle-outline" size={13} color={Colors.danger} />
+                      <Text style={section.errorText}>{editError}</Text>
+                    </View>
+                  )}
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    <Pressable style={[section.submitBtn, { flex: 1 }]} onPress={handleUpdate} disabled={updateSub.isPending}>
+                      {updateSub.isPending ? <ActivityIndicator color="#000" /> : <Text style={section.submitBtnText}>Update</Text>}
+                    </Pressable>
+                    <Pressable style={[section.cancelBtn, { flex: 1 }]} onPress={() => setEditingId(null)}>
+                      <Text style={section.cancelBtnText}>Cancel</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ) : (
+                <View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                    <Ionicons name="layers-outline" size={18} color={plan?.color ?? Colors.purple} />
+                    <Text style={[section.name, { flex: 1 }]} numberOfLines={1}>{gymName}</Text>
+                    <StatusBadge status={sub.status ?? 'active'} map={SUB_STATUS_MAP} />
+                  </View>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <View style={{ gap: 2 }}>
+                      <Text style={{ fontFamily: 'Inter_600SemiBold', fontSize: 13, color: plan?.color ?? Colors.purple }}>{plan?.label ?? sub.plan_id ?? '—'} {plan?.price ? `· ${plan.price}` : ''}</Text>
+                      <Text style={section.sub}>{fmtDate(sub.start_date)} → {fmtDate(sub.end_date)}</Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', gap: 12 }}>
+                      <Pressable onPress={() => { setEditingId(sub.id); setEditForm({ plan_id: sub.plan_id ?? 'base', start_date: sub.start_date ?? '', end_date: sub.end_date ?? '', status: sub.status ?? 'active' }); }}>
+                        <Ionicons name="pencil-outline" size={17} color={Colors.primary} />
+                      </Pressable>
+                      <Pressable onPress={() => setPendingDelete(sub)}>
+                        <Ionicons name="trash-outline" size={17} color={Colors.danger} />
+                      </Pressable>
+                    </View>
+                  </View>
+                </View>
+              )}
+            </View>
+          );
+        })}
+        {filtered.length === 0 && !isLoading && <Text style={section.empty}>No subscriptions found</Text>}
+      </ScrollView>
+
+      <ConfirmModal
+        visible={!!pendingDelete}
+        title="Delete Subscription"
+        message={`Remove subscription for ${pendingDelete?.gym?.name ?? 'this gym'}?`}
+        confirmLabel="Delete"
+        destructive
+        icon="trash-outline"
+        loading={deleteSub.isPending}
+        onConfirm={() => pendingDelete && deleteSub.mutate(pendingDelete.id, { onSuccess: () => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); setPendingDelete(null); } })}
+        onCancel={() => setPendingDelete(null)}
+      />
+    </View>
+  );
+}
+
+// ─── MODULES SECTION ──────────────────────────────────────────────────────────
+function ModulesSection({ onClose }: { onClose: () => void }) {
+  const insets = useSafeAreaInsets();
+  const { data: gyms = [] } = useGyms();
+  const { data: allModules = [], isLoading: loadingModules } = useModules();
+  const [selectedGymId, setSelectedGymId] = useState('');
+  const { data: gymModules = [], isLoading: loadingGymModules } = useGymModules(selectedGymId);
+  const upsertModule = useUpsertGymModule();
+  const [toggling, setToggling] = useState<string | null>(null);
+
+  const enabledIds = new Set(gymModules.filter((gm: any) => gm.is_enabled).map((gm: any) => gm.module_id));
+
+  const handleToggle = async (moduleId: string, currentEnabled: boolean) => {
+    if (!selectedGymId) return;
+    setToggling(moduleId);
+    upsertModule.mutate(
+      { gym_id: selectedGymId, module_id: moduleId, is_enabled: !currentEnabled },
+      {
+        onSuccess: () => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); setToggling(null); },
+        onError: () => setToggling(null),
+      }
+    );
+  };
+
+  return (
+    <View style={{ flex: 1, backgroundColor: Colors.background }}>
+      <SectionHeader title="Modules" onClose={onClose} />
+      <ScrollView contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: insets.bottom + 20 }}>
+        <View style={section.formCard}>
+          <Text style={{ fontFamily: 'Inter_600SemiBold', fontSize: 13, color: Colors.textSecondary, marginBottom: 4 }}>Select a Gym to Manage Modules</Text>
+          <GymPicker gyms={gyms} value={selectedGymId} onChange={setSelectedGymId} />
+        </View>
+
+        {loadingModules && <ActivityIndicator color={Colors.warning} />}
+
+        {allModules.length > 0 && (
+          <View style={section.card}>
+            <Text style={analytics.sectionTitle}>Available Modules</Text>
+            {!selectedGymId && (
+              <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 13, color: Colors.textMuted }}>Select a gym above to toggle modules</Text>
+            )}
+            {allModules.map((mod: any) => {
+              const isEnabled = enabledIds.has(mod.id);
+              const isToggling = toggling === mod.id;
+              return (
+                <View key={mod.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: Colors.border }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontFamily: 'Inter_600SemiBold', fontSize: 14, color: Colors.text }}>{mod.name}</Text>
+                    {!!mod.description && <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 12, color: Colors.textSecondary, marginTop: 2 }}>{mod.description}</Text>}
+                  </View>
+                  {selectedGymId ? (
+                    loadingGymModules || isToggling ? (
+                      <ActivityIndicator size="small" color={Colors.warning} />
+                    ) : (
+                      <Pressable
+                        onPress={() => handleToggle(mod.id, isEnabled)}
+                        style={{ width: 46, height: 26, borderRadius: 13, backgroundColor: isEnabled ? Colors.primary : Colors.secondary, borderWidth: 1, borderColor: isEnabled ? Colors.primary : Colors.border, justifyContent: 'center', paddingHorizontal: 2 }}
+                      >
+                        <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: isEnabled ? '#000' : Colors.textMuted, alignSelf: isEnabled ? 'flex-end' : 'flex-start' }} />
+                      </Pressable>
+                    )
+                  ) : (
+                    <View style={{ width: 46, height: 26, borderRadius: 13, backgroundColor: Colors.secondary, borderWidth: 1, borderColor: Colors.border }} />
+                  )}
+                </View>
+              );
+            })}
+          </View>
+        )}
+
+        {allModules.length === 0 && !loadingModules && (
+          <Text style={section.empty}>No modules configured</Text>
+        )}
+
+        {selectedGymId && !loadingGymModules && (
+          <View style={[section.card, { borderTopWidth: 2, borderTopColor: Colors.warning }]}>
+            <Text style={analytics.sectionTitle}>Summary for Selected Gym</Text>
+            <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 13, color: Colors.textSecondary }}>
+              {enabledIds.size} of {allModules.length} modules enabled
+            </Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+              {allModules.filter((m: any) => enabledIds.has(m.id)).map((m: any) => (
+                <View key={m.id} style={{ backgroundColor: Colors.primary + '22', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: Colors.primary + '55' }}>
+                  <Text style={{ fontFamily: 'Inter_500Medium', fontSize: 11, color: Colors.primary }}>{m.name}</Text>
+                </View>
+              ))}
+              {enabledIds.size === 0 && <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 13, color: Colors.textMuted }}>No modules enabled</Text>}
+            </View>
+          </View>
+        )}
+      </ScrollView>
+    </View>
+  );
+}
+
+// ─── WHATSAPP SECTION ─────────────────────────────────────────────────────────
+const WA_STATUS_MAP: Record<string, { label: string; color: string }> = {
+  sent: { label: 'Sent', color: Colors.primary },
+  delivered: { label: 'Delivered', color: Colors.info },
+  failed: { label: 'Failed', color: Colors.danger },
+  pending: { label: 'Pending', color: Colors.warning },
+};
+
+function WhatsAppSection({ onClose }: { onClose: () => void }) {
+  const insets = useSafeAreaInsets();
+  const { data: gyms = [] } = useGyms();
+  const { data: logs = [], isLoading } = useWhatsappLogs();
+  const insertLog = useInsertWhatsappLog();
+  const [tab, setTab] = useState<'logs' | 'broadcast'>('logs');
+  const [broadcastGymId, setBroadcastGymId] = useState('');
+  const [broadcastPhone, setBroadcastPhone] = useState('');
+  const [broadcastMsg, setBroadcastMsg] = useState('');
+  const [broadcastError, setBroadcastError] = useState('');
+  const [broadcastSuccess, setBroadcastSuccess] = useState(false);
+  const [filterGym, setFilterGym] = useState('');
+
+  const filteredLogs = filterGym ? logs.filter((l: any) => l.gym_id === filterGym) : logs;
+
+  const handleBroadcast = () => {
+    setBroadcastError('');
+    setBroadcastSuccess(false);
+    if (!broadcastGymId) { setBroadcastError('Please select a gym'); return; }
+    if (!broadcastMsg.trim()) { setBroadcastError('Message is required'); return; }
+    insertLog.mutate(
+      { gym_id: broadcastGymId, message: broadcastMsg.trim(), phone: broadcastPhone.trim() || undefined, status: 'sent' },
+      {
+        onSuccess: () => {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          setBroadcastMsg('');
+          setBroadcastPhone('');
+          setBroadcastGymId('');
+          setBroadcastSuccess(true);
+        },
+        onError: (e: any) => setBroadcastError(e.message),
+      }
+    );
+  };
+
+  return (
+    <View style={{ flex: 1, backgroundColor: Colors.background }}>
+      <SectionHeader title="WhatsApp" onClose={onClose} />
+      <View style={{ flexDirection: 'row', paddingHorizontal: 16, paddingTop: 12, gap: 8 }}>
+        {(['logs', 'broadcast'] as const).map(t => (
+          <Pressable
+            key={t}
+            style={{ flex: 1, height: 38, borderRadius: 10, alignItems: 'center', justifyContent: 'center', borderWidth: 1,
+              backgroundColor: tab === t ? '#25D36622' : Colors.secondary,
+              borderColor: tab === t ? '#25D366' : Colors.border }}
+            onPress={() => setTab(t)}
+          >
+            <Text style={{ fontFamily: 'Inter_600SemiBold', fontSize: 13, color: tab === t ? '#25D366' : Colors.textSecondary, textTransform: 'capitalize' }}>{t}</Text>
+          </Pressable>
+        ))}
+      </View>
+
+      {tab === 'broadcast' ? (
+        <ScrollView contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: insets.bottom + 20 }}>
+          <View style={[section.card, { gap: 10 }]}>
+            <Text style={analytics.sectionTitle}>Send Broadcast Message</Text>
+            <GymPicker gyms={gyms} value={broadcastGymId} onChange={setBroadcastGymId} />
+            <TextInput
+              style={section.input}
+              placeholder="Phone Number (optional)"
+              placeholderTextColor={Colors.textMuted}
+              keyboardType="phone-pad"
+              value={broadcastPhone}
+              onChangeText={setBroadcastPhone}
+            />
+            <TextInput
+              style={[section.input, { height: 100, textAlignVertical: 'top', paddingTop: 10 }]}
+              placeholder="Message *"
+              placeholderTextColor={Colors.textMuted}
+              multiline
+              value={broadcastMsg}
+              onChangeText={setBroadcastMsg}
+            />
+            {!!broadcastError && (
+              <View style={section.errorBox}>
+                <Ionicons name="alert-circle-outline" size={13} color={Colors.danger} />
+                <Text style={section.errorText}>{broadcastError}</Text>
+              </View>
+            )}
+            {broadcastSuccess && (
+              <View style={{ flexDirection: 'row', gap: 8, backgroundColor: Colors.primaryMuted, borderRadius: 10, padding: 10, borderWidth: 1, borderColor: Colors.primary + '40' }}>
+                <Ionicons name="checkmark-circle-outline" size={16} color={Colors.primary} />
+                <Text style={{ fontFamily: 'Inter_500Medium', fontSize: 13, color: Colors.primary }}>Message sent successfully!</Text>
+              </View>
+            )}
+            <Pressable
+              style={[section.submitBtn, { backgroundColor: '#25D366' }]}
+              onPress={handleBroadcast}
+              disabled={insertLog.isPending}
+            >
+              {insertLog.isPending
+                ? <ActivityIndicator color="#fff" />
+                : (
+                  <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                    <Ionicons name="logo-whatsapp" size={16} color="#fff" />
+                    <Text style={[section.submitBtnText, { color: '#fff' }]}>Send Message</Text>
+                  </View>
+                )}
+            </Pressable>
+          </View>
+        </ScrollView>
+      ) : (
+        <ScrollView contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: insets.bottom + 20 }}>
+          <GymPicker gyms={[{ id: '', name: 'All Gyms' }, ...gyms]} value={filterGym} onChange={setFilterGym} />
+          {isLoading && <ActivityIndicator color={'#25D366'} />}
+          {filteredLogs.map((log: any) => (
+            <View key={log.id} style={section.card}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                <Ionicons name="logo-whatsapp" size={16} color="#25D366" />
+                <Text style={[section.name, { flex: 1 }]} numberOfLines={1}>{log.gym?.name ?? 'Unknown Gym'}</Text>
+                <StatusBadge status={log.status ?? 'sent'} map={WA_STATUS_MAP} />
+              </View>
+              {!!log.phone && <Text style={section.sub}>{log.phone}</Text>}
+              <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 13, color: Colors.textSecondary, lineHeight: 18 }} numberOfLines={3}>{log.message}</Text>
+              <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 11, color: Colors.textMuted }}>{fmtDate(log.created_at)}</Text>
+            </View>
+          ))}
+          {filteredLogs.length === 0 && !isLoading && <Text style={section.empty}>No WhatsApp logs yet</Text>}
+        </ScrollView>
+      )}
+    </View>
+  );
+}
+
+// ─── BILLING SECTION ──────────────────────────────────────────────────────────
+const INV_STATUS_MAP: Record<string, { label: string; color: string }> = {
+  paid: { label: 'Paid', color: Colors.primary },
+  pending: { label: 'Pending', color: Colors.warning },
+  overdue: { label: 'Overdue', color: Colors.danger },
+};
+
+function BillingSection({ onClose }: { onClose: () => void }) {
+  const insets = useSafeAreaInsets();
+  const { data: gyms = [] } = useGyms();
+  const { data: invoices = [], isLoading } = useInvoices();
+  const insertInvoice = useInsertInvoice();
+  const updateInvoice = useUpdateInvoice();
+
+  const [showAdd, setShowAdd] = useState(false);
+  const [form, setForm] = useState({ gym_id: '', description: '', amount: '', due_date: '', status: 'pending' });
+  const [formError, setFormError] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [filterGym, setFilterGym] = useState('');
+
+  const totalPaid = invoices.filter((i: any) => i.status === 'paid').reduce((s: number, i: any) => s + (i.amount ?? 0), 0);
+  const totalPending = invoices.filter((i: any) => i.status === 'pending').reduce((s: number, i: any) => s + (i.amount ?? 0), 0);
+  const overdueCount = invoices.filter((i: any) => i.status === 'overdue').length;
+  const thisMonth = invoices.filter((i: any) => {
+    if (!i.created_at) return false;
+    const d = new Date(i.created_at);
+    const now = new Date();
+    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+  }).length;
+
+  const filtered = invoices
+    .filter((i: any) => statusFilter === 'all' || i.status === statusFilter)
+    .filter((i: any) => !filterGym || i.gym_id === filterGym);
+
+  const handleAdd = () => {
+    setFormError('');
+    if (!form.gym_id) { setFormError('Please select a gym'); return; }
+    if (!form.amount || isNaN(Number(form.amount))) { setFormError('Enter a valid amount'); return; }
+    if (!form.due_date) { setFormError('Due date is required (YYYY-MM-DD)'); return; }
+    insertInvoice.mutate(
+      { gym_id: form.gym_id, description: form.description || null, amount: Number(form.amount), due_date: form.due_date, status: form.status },
+      {
+        onSuccess: () => {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          setShowAdd(false);
+          setForm({ gym_id: '', description: '', amount: '', due_date: '', status: 'pending' });
+        },
+        onError: (e: any) => setFormError(e.message),
+      }
+    );
+  };
+
+  const togglePaid = (inv: any) => {
+    const newStatus = inv.status === 'paid' ? 'pending' : 'paid';
+    const updates: any = { status: newStatus };
+    if (newStatus === 'paid') updates.paid_at = new Date().toISOString();
+    else updates.paid_at = null;
+    updateInvoice.mutate({ id: inv.id, ...updates }, {
+      onSuccess: () => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success),
+    });
+  };
+
+  return (
+    <View style={{ flex: 1, backgroundColor: Colors.background }}>
+      <SectionHeader title="Billing" onClose={onClose} />
+      <ScrollView contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: insets.bottom + 20 }}>
+        <View style={analytics.grid}>
+          {[
+            { label: 'Total Paid', value: `₹${totalPaid.toLocaleString('en-IN')}`, color: Colors.primary },
+            { label: 'Pending', value: `₹${totalPending.toLocaleString('en-IN')}`, color: Colors.warning },
+            { label: 'Overdue', value: overdueCount, color: Colors.danger },
+            { label: 'This Month', value: thisMonth, color: Colors.info },
+          ].map(item => (
+            <View key={item.label} style={[analytics.card, { borderTopColor: item.color }]}>
+              <Text style={analytics.cardLabel}>{item.label}</Text>
+              <Text style={[analytics.cardValue, { color: item.color, fontSize: typeof item.value === 'string' ? 16 : 24 }]}>{item.value}</Text>
+            </View>
+          ))}
+        </View>
+
+        <Pressable
+          style={[section.addBtn, showAdd && { backgroundColor: Colors.secondary }]}
+          onPress={() => setShowAdd(!showAdd)}
+        >
+          <Ionicons name={showAdd ? 'close-outline' : 'add'} size={18} color={Colors.info} />
+          <Text style={[section.addBtnText, { color: Colors.info }]}>{showAdd ? 'Cancel' : 'Create Invoice'}</Text>
+        </Pressable>
+
+        {showAdd && (
+          <View style={section.formCard}>
+            <GymPicker gyms={gyms} value={form.gym_id} onChange={id => setForm(f => ({ ...f, gym_id: id }))} />
+            <TextInput style={section.input} placeholder="Description (optional)" placeholderTextColor={Colors.textMuted} value={form.description} onChangeText={v => setForm(f => ({ ...f, description: v }))} />
+            <TextInput style={section.input} placeholder="Amount (₹) *" placeholderTextColor={Colors.textMuted} keyboardType="numeric" value={form.amount} onChangeText={v => setForm(f => ({ ...f, amount: v }))} />
+            <TextInput style={section.input} placeholder="Due Date (YYYY-MM-DD) *" placeholderTextColor={Colors.textMuted} value={form.due_date} onChangeText={v => setForm(f => ({ ...f, due_date: v }))} />
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              {['pending', 'paid', 'overdue'].map(s => (
+                <Pressable
+                  key={s}
+                  style={{ flex: 1, height: 36, borderRadius: 8, borderWidth: 1, alignItems: 'center', justifyContent: 'center',
+                    backgroundColor: form.status === s ? INV_STATUS_MAP[s].color + '22' : Colors.secondary,
+                    borderColor: form.status === s ? INV_STATUS_MAP[s].color : Colors.border }}
+                  onPress={() => setForm(f => ({ ...f, status: s }))}
+                >
+                  <Text style={{ fontFamily: 'Inter_500Medium', fontSize: 12, color: form.status === s ? INV_STATUS_MAP[s].color : Colors.textSecondary, textTransform: 'capitalize' }}>{s}</Text>
+                </Pressable>
+              ))}
+            </View>
+            {!!formError && (
+              <View style={section.errorBox}>
+                <Ionicons name="alert-circle-outline" size={13} color={Colors.danger} />
+                <Text style={section.errorText}>{formError}</Text>
+              </View>
+            )}
+            <Pressable style={section.submitBtn} onPress={handleAdd} disabled={insertInvoice.isPending}>
+              {insertInvoice.isPending ? <ActivityIndicator color="#000" /> : <Text style={section.submitBtnText}>Create Invoice</Text>}
+            </Pressable>
+          </View>
+        )}
+
+        <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+          {['all', 'paid', 'pending', 'overdue'].map(s => (
+            <Pressable
+              key={s}
+              style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1,
+                backgroundColor: statusFilter === s ? Colors.info + '22' : Colors.secondary,
+                borderColor: statusFilter === s ? Colors.info : Colors.border }}
+              onPress={() => setStatusFilter(s)}
+            >
+              <Text style={{ fontFamily: 'Inter_500Medium', fontSize: 12, color: statusFilter === s ? Colors.info : Colors.textSecondary, textTransform: 'capitalize' }}>{s}</Text>
+            </Pressable>
+          ))}
+        </View>
+
+        <GymPicker gyms={[{ id: '', name: 'All Gyms' }, ...gyms]} value={filterGym} onChange={setFilterGym} />
+
+        {isLoading && <ActivityIndicator color={Colors.info} />}
+        {filtered.map((inv: any) => {
+          const gymName = inv.gym?.name ?? 'Unknown Gym';
+          const isPaid = inv.status === 'paid';
+          return (
+            <View key={inv.id} style={section.card}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <Ionicons name="card-outline" size={18} color={INV_STATUS_MAP[inv.status ?? 'pending']?.color ?? Colors.info} />
+                <Text style={[section.name, { flex: 1 }]} numberOfLines={1}>{gymName}</Text>
+                <StatusBadge status={inv.status ?? 'pending'} map={INV_STATUS_MAP} />
+              </View>
+              {!!inv.description && <Text style={section.sub}>{inv.description}</Text>}
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                <View>
+                  <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 16, color: Colors.text }}>₹{(inv.amount ?? 0).toLocaleString('en-IN')}</Text>
+                  <Text style={section.sub}>Due: {fmtDate(inv.due_date)}{isPaid && inv.paid_at ? ` · Paid: ${fmtDate(inv.paid_at)}` : ''}</Text>
+                </View>
+                <Pressable
+                  style={{ flexDirection: 'row', gap: 6, alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, borderWidth: 1,
+                    backgroundColor: isPaid ? Colors.secondary : Colors.primaryMuted,
+                    borderColor: isPaid ? Colors.border : Colors.primary }}
+                  onPress={() => togglePaid(inv)}
+                  disabled={updateInvoice.isPending}
+                >
+                  <Ionicons name={isPaid ? 'arrow-undo-outline' : 'checkmark-circle-outline'} size={15} color={isPaid ? Colors.textMuted : Colors.primary} />
+                  <Text style={{ fontFamily: 'Inter_500Medium', fontSize: 12, color: isPaid ? Colors.textMuted : Colors.primary }}>
+                    {isPaid ? 'Undo' : 'Mark Paid'}
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+          );
+        })}
+        {filtered.length === 0 && !isLoading && <Text style={section.empty}>No invoices found</Text>}
+      </ScrollView>
+    </View>
+  );
+}
+
+const planSt = StyleSheet.create({
+  planCard: {
+    flex: 1, backgroundColor: Colors.card, borderRadius: 12, padding: 10,
+    borderWidth: 1, borderColor: Colors.border, borderTopWidth: 2, alignItems: 'center', gap: 2,
+  },
+  planLabel: { fontFamily: 'Inter_700Bold', fontSize: 13 },
+  planPrice: { fontFamily: 'Inter_400Regular', fontSize: 11, color: Colors.textSecondary },
+  planCount: { fontFamily: 'Inter_600SemiBold', fontSize: 16, color: Colors.text },
+});
 
 const styles = StyleSheet.create({
   content: { padding: 16, gap: 10 },

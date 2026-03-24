@@ -308,3 +308,162 @@ export function useInsertActivity() {
     },
   });
 }
+
+// ── INVOICES ───────────────────────────────────────────────────────────
+export function useInvoices() {
+  return useQuery({
+    queryKey: ['invoices'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('invoices')
+        .select('*, gym:gyms(id, name)')
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+}
+
+export function useInsertInvoice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (invoice: any) => {
+      const { data, error } = await supabase.from('invoices').insert(invoice).select().single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['invoices'] }),
+  });
+}
+
+export function useUpdateInvoice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...update }: { id: string; [key: string]: any }) => {
+      const { data, error } = await supabase.from('invoices').update(update).eq('id', id).select().single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['invoices'] }),
+  });
+}
+
+// ── GYM SUBSCRIPTIONS ──────────────────────────────────────────────────
+export function useGymSubscriptions() {
+  return useQuery({
+    queryKey: ['gym_subscriptions'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('gym_subscriptions')
+        .select('*, gym:gyms(id, name)')
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+}
+
+export function useInsertGymSubscription() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (sub: any) => {
+      const { data, error } = await supabase.from('gym_subscriptions').insert(sub).select().single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['gym_subscriptions'] }),
+  });
+}
+
+export function useUpdateGymSubscription() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...update }: { id: string; [key: string]: any }) => {
+      const { data, error } = await supabase.from('gym_subscriptions').update(update).eq('id', id).select().single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['gym_subscriptions'] }),
+  });
+}
+
+export function useDeleteGymSubscription() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from('gym_subscriptions').delete().eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['gym_subscriptions'] }),
+  });
+}
+
+// ── MODULES ────────────────────────────────────────────────────────────
+export function useModules() {
+  return useQuery({
+    queryKey: ['modules'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('modules').select('*').order('name');
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+}
+
+export function useGymModules(gymId?: string | null) {
+  return useQuery({
+    queryKey: ['gym_modules', gymId],
+    enabled: !!gymId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('gym_modules')
+        .select('*, module:modules(id, name, description)')
+        .eq('gym_id', gymId!);
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+}
+
+export function useUpsertGymModule() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ gym_id, module_id, is_enabled }: { gym_id: string; module_id: string; is_enabled: boolean }) => {
+      const { data, error } = await supabase
+        .from('gym_modules')
+        .upsert({ gym_id, module_id, is_enabled }, { onConflict: 'gym_id,module_id' })
+        .select().single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (_, vars) => qc.invalidateQueries({ queryKey: ['gym_modules', vars.gym_id] }),
+  });
+}
+
+// ── WHATSAPP LOGS ──────────────────────────────────────────────────────
+export function useWhatsappLogs() {
+  return useQuery({
+    queryKey: ['whatsapp_logs'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('whatsapp_logs')
+        .select('*, gym:gyms(id, name)')
+        .order('created_at', { ascending: false })
+        .limit(100);
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+}
+
+export function useInsertWhatsappLog() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (log: { gym_id: string; message: string; phone?: string; status?: string }) => {
+      const { data, error } = await supabase.from('whatsapp_logs').insert(log).select().single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['whatsapp_logs'] }),
+  });
+}

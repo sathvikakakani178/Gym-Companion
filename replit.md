@@ -91,6 +91,31 @@ Generated Zod schemas from the OpenAPI spec (e.g. `HealthCheckResponse`). Used b
 
 Generated React Query hooks and fetch client from the OpenAPI spec (e.g. `useHealthCheck`, `healthCheck`).
 
+### `artifacts/mobile` (`@workspace/mobile`)
+
+GymLeads Expo React Native mobile app (web-compatible via Expo Web). Connects directly to Supabase.
+
+- **Auth**: Supabase email/password. Three roles: `super_admin`, `gym_owner`, `trainer`
+- **super_admin tabs**: Dashboard / Gyms / Activity / More
+- **gym_owner tabs**: Dashboard / Leads / Members / Trainers / More
+- **trainer tabs**: Dashboard / MyClients / DietPlans / More
+- **Supabase creds**: Keys are swapped in env vars — `EXPO_PUBLIC_SUPABASE_ANON_KEY` holds the URL, `EXPO_PUBLIC_SUPABASE_URL` holds the anon key. Handled in `lib/supabase.ts`.
+- **Design**: dark bg (#0D0F14), green primary (#2ECC71), Inter font family
+- **No Alert.alert**: All confirmations use `ConfirmModal` component. Inline `formError` state for form errors.
+- **Key files**:
+  - `app/(tabs)/more.tsx` — More screen with slide-up section modals
+  - `lib/hooks.ts` — All Supabase React Query hooks
+  - `components/ConfirmModal.tsx` — Reusable confirm dialog
+  - `constants/colors.ts` — Design system colors
+
+#### More screen sections (super_admin)
+- **Gym Analytics** — cross-gym stats, plans breakdown, members-per-gym chart
+- **Branches** — CRUD for gym branches
+- **Plans** — Gym subscription management (gym_subscriptions table). Base/Classic/Pro tiers. Filter by status.
+- **Modules** — Toggle module features per gym (gym_modules + modules tables). Gym picker + toggle switches.
+- **WhatsApp** — Message logs (whatsapp_logs) + Broadcast send form. Two tabs: Logs / Broadcast.
+- **Billing** — Invoice management (invoices table). Stats grid, create/mark-paid. Filter by status and gym.
+
 ### `scripts` (`@workspace/scripts`)
 
 Utility scripts package. Each script is a `.ts` file in `src/` with a corresponding npm script in `package.json`. Run scripts via `pnpm --filter @workspace/scripts run <script>`. Scripts can import any workspace package (e.g., `@workspace/db`) by adding it as a dependency in `scripts/package.json`.
