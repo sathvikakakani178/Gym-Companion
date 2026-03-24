@@ -1,18 +1,17 @@
 import { BlurView } from "expo-blur";
 import { isLiquidGlassAvailable } from "expo-glass-effect";
-import { Tabs, router } from "expo-router";
+import { Redirect, Tabs } from "expo-router";
 import { Icon, Label, NativeTabs } from "expo-router/unstable-native-tabs";
 import { SymbolView } from "expo-symbols";
 import { Ionicons } from "@expo/vector-icons";
-import React, { useEffect } from "react";
-import { Platform, StyleSheet, View } from "react-native";
+import React from "react";
+import { ActivityIndicator, Platform, StyleSheet, View } from "react-native";
 import { useAuth } from "@/context/AuthContext";
 import { Colors } from "@/constants/colors";
 
 function NativeTabLayout({ role }: { role: string }) {
   const isAdmin = role === 'super_admin';
   const isOwner = role === 'gym_owner';
-  const isTrainer = role === 'trainer';
 
   return (
     <NativeTabs>
@@ -32,12 +31,10 @@ function NativeTabLayout({ role }: { role: string }) {
           <Label>Members</Label>
         </NativeTabs.Trigger>
       )}
-      {(isAdmin || isOwner || isTrainer) && (
-        <NativeTabs.Trigger name="clients">
-          <Icon sf={{ default: "figure.strengthtraining.traditional", selected: "figure.strengthtraining.traditional" }} />
-          <Label>Clients</Label>
-        </NativeTabs.Trigger>
-      )}
+      <NativeTabs.Trigger name="clients">
+        <Icon sf={{ default: "figure.strengthtraining.traditional", selected: "figure.strengthtraining.traditional" }} />
+        <Label>Clients</Label>
+      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="more">
         <Icon sf={{ default: "ellipsis.circle", selected: "ellipsis.circle.fill" }} />
         <Label>More</Label>
@@ -79,7 +76,9 @@ function ClassicTabLayout({ role }: { role: string }) {
         options={{
           title: "Dashboard",
           tabBarIcon: ({ color }) =>
-            isIOS ? <SymbolView name="house" tintColor={color} size={22} /> : <Ionicons name="home-outline" size={22} color={color} />,
+            isIOS
+              ? <SymbolView name="house" tintColor={color} size={22} />
+              : <Ionicons name="home-outline" size={22} color={color} />,
         }}
       />
       <Tabs.Screen
@@ -88,7 +87,9 @@ function ClassicTabLayout({ role }: { role: string }) {
           href: (isAdmin || isOwner) ? undefined : null,
           title: "Leads",
           tabBarIcon: ({ color }) =>
-            isIOS ? <SymbolView name="person.badge.plus" tintColor={color} size={22} /> : <Ionicons name="people-outline" size={22} color={color} />,
+            isIOS
+              ? <SymbolView name="person.badge.plus" tintColor={color} size={22} />
+              : <Ionicons name="people-outline" size={22} color={color} />,
         }}
       />
       <Tabs.Screen
@@ -97,7 +98,9 @@ function ClassicTabLayout({ role }: { role: string }) {
           href: (isAdmin || isOwner) ? undefined : null,
           title: "Members",
           tabBarIcon: ({ color }) =>
-            isIOS ? <SymbolView name="person.2" tintColor={color} size={22} /> : <Ionicons name="person-outline" size={22} color={color} />,
+            isIOS
+              ? <SymbolView name="person.2" tintColor={color} size={22} />
+              : <Ionicons name="person-outline" size={22} color={color} />,
         }}
       />
       <Tabs.Screen
@@ -106,7 +109,9 @@ function ClassicTabLayout({ role }: { role: string }) {
           href: (isAdmin || isOwner || isTrainer) ? undefined : null,
           title: "Clients",
           tabBarIcon: ({ color }) =>
-            isIOS ? <SymbolView name="figure.strengthtraining.traditional" tintColor={color} size={22} /> : <Ionicons name="barbell-outline" size={22} color={color} />,
+            isIOS
+              ? <SymbolView name="figure.strengthtraining.traditional" tintColor={color} size={22} />
+              : <Ionicons name="barbell-outline" size={22} color={color} />,
         }}
       />
       <Tabs.Screen
@@ -114,7 +119,9 @@ function ClassicTabLayout({ role }: { role: string }) {
         options={{
           title: "More",
           tabBarIcon: ({ color }) =>
-            isIOS ? <SymbolView name="ellipsis.circle" tintColor={color} size={22} /> : <Ionicons name="ellipsis-horizontal-circle-outline" size={22} color={color} />,
+            isIOS
+              ? <SymbolView name="ellipsis.circle" tintColor={color} size={22} />
+              : <Ionicons name="ellipsis-horizontal-circle-outline" size={22} color={color} />,
         }}
       />
     </Tabs>
@@ -124,13 +131,19 @@ function ClassicTabLayout({ role }: { role: string }) {
 export default function TabLayout() {
   const { user, loading } = useAuth();
 
-  useEffect(() => {
-    if (!loading && !user) {
-      router.replace('/login');
-    }
-  }, [user, loading]);
+  // Show a spinner while we check auth state
+  if (loading) {
+    return (
+      <View style={{ flex: 1, backgroundColor: Colors.background, alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator color={Colors.primary} size="large" />
+      </View>
+    );
+  }
 
-  if (!user) return null;
+  // Not authenticated — redirect to login using Expo Router's declarative Redirect
+  if (!user) {
+    return <Redirect href="/login" />;
+  }
 
   if (isLiquidGlassAvailable()) {
     return <NativeTabLayout role={user.role} />;

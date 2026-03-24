@@ -32,7 +32,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, msg: string): Promise<T
 
 async function loadProfile(session: Session): Promise<User> {
   try {
-    const { data: profile, error } = await withTimeout(
+    const { data: profile } = await withTimeout(
       supabase
         .from('profiles')
         .select('id, name, email, role, gym_id, branch_id')
@@ -42,12 +42,11 @@ async function loadProfile(session: Session): Promise<User> {
       'Profile load timed out'
     );
 
-    if (error || !profile) {
-      const email = session.user.email || '';
+    if (!profile) {
       return {
         id: session.user.id,
-        name: session.user.user_metadata?.name || email.split('@')[0] || 'Admin',
-        email,
+        name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'User',
+        email: session.user.email || '',
         role: 'super_admin',
       };
     }
@@ -76,41 +75,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Initialise — give getSession a hard timeout so we never hang forever
+    let cancelled = false;
+
     withTimeout(supabase.auth.getSession(), 10000, 'Session check timed out')
       .then(async ({ data: { session } }) => {
+        if (cancelled) return;
         setSession(session);
         if (session) {
           const profile = await loadProfile(session);
-          setUser(profile);
+          if (!cancelled) setUser(profile);
         }
       })
       .catch((err) => {
         console.warn('Auth init error:', err.message);
       })
       .finally(() => {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (cancelled) return;
       setSession(session);
       if (session) {
         const profile = await loadProfile(session);
-        setUser(profile);
+        if (!cancelled) setUser(profile);
       } else {
         setUser(null);
+        setLoading(false);
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const login = async (email: string, password: string): Promise<string | null> => {
     try {
       const { error } = await withTimeout(
         supabase.auth.signInWithPassword({ email, password }),
-        12000,
-        'Sign in timed out. Please check your connection and try again.'
+        15000,
+        'Sign in timed out. Please check your internet connection and try again.'
       );
       if (error) return error.message;
       return null;
@@ -120,9 +126,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = async () => {
-    await supabase.auth.signOut();
-    setUser(null);
-    setSession(null);
+    try {
+      await withTimeout(supabase.auth.signOut(), 8000, 'Sign out timed out');
+    } catch {
+      // Even if signOut times out, clear local state
+    } finally {
+      setUser(null);
+      setSession(null);
+    }
   };
 
   return (

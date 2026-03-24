@@ -7,7 +7,7 @@ import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
-import { useTrainers, useBranches, useInsertBranch, useDeleteBranch, useInsertActivity, useProfiles, useMembers, useGyms, useActivityLog } from '@/lib/hooks';
+import { useLeads, useTrainers, useBranches, useInsertBranch, useDeleteBranch, useInsertActivity, useProfiles, useMembers, useGyms, useActivityLog } from '@/lib/hooks';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { Badge } from '@/components/Badge';
 import { Colors } from '@/constants/colors';
@@ -349,7 +349,7 @@ function ActivitySection({ onClose }: { onClose: () => void }) {
 
 function AnalyticsSection({ onClose }: { onClose: () => void }) {
   const { user } = useAuth();
-  const { data: leads = [] } = useLeadsData(user?.gym_id);
+  const { data: leads = [] } = useLeads(user?.gym_id);
   const { data: members = [] } = useMembers(user?.gym_id);
   const { data: trainers = [] } = useTrainers(user?.gym_id);
   const insets = useSafeAreaInsets();
@@ -524,7 +524,3 @@ const analyticsStyles = StyleSheet.create({
   funnelCount: { fontFamily: 'Inter_600SemiBold', fontSize: 13, width: 28, textAlign: 'right' },
 });
 
-function useLeadsData(gymId?: string | null) {
-  const { useLeads } = require('@/lib/hooks');
-  return useLeads(gymId);
-}
