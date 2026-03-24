@@ -1,53 +1,37 @@
 import { BlurView } from "expo-blur";
-import { isLiquidGlassAvailable } from "expo-glass-effect";
 import { Redirect, Tabs } from "expo-router";
-import { Icon, Label, NativeTabs } from "expo-router/unstable-native-tabs";
-import { SymbolView } from "expo-symbols";
 import { Ionicons } from "@expo/vector-icons";
+import { SymbolView } from "expo-symbols";
 import React from "react";
 import { ActivityIndicator, Platform, StyleSheet, View } from "react-native";
 import { useAuth } from "@/context/AuthContext";
 import { Colors } from "@/constants/colors";
 
-function NativeTabLayout({ role }: { role: string }) {
-  const isAdmin = role === 'super_admin';
-  const isOwner = role === 'gym_owner';
-
-  return (
-    <NativeTabs>
-      <NativeTabs.Trigger name="index">
-        <Icon sf={{ default: "house", selected: "house.fill" }} />
-        <Label>Dashboard</Label>
-      </NativeTabs.Trigger>
-      {(isAdmin || isOwner) && (
-        <NativeTabs.Trigger name="leads">
-          <Icon sf={{ default: "person.badge.plus", selected: "person.badge.plus.fill" }} />
-          <Label>Leads</Label>
-        </NativeTabs.Trigger>
-      )}
-      {(isAdmin || isOwner) && (
-        <NativeTabs.Trigger name="members">
-          <Icon sf={{ default: "person.2", selected: "person.2.fill" }} />
-          <Label>Members</Label>
-        </NativeTabs.Trigger>
-      )}
-      <NativeTabs.Trigger name="clients">
-        <Icon sf={{ default: "figure.strengthtraining.traditional", selected: "figure.strengthtraining.traditional" }} />
-        <Label>Clients</Label>
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="more">
-        <Icon sf={{ default: "ellipsis.circle", selected: "ellipsis.circle.fill" }} />
-        <Label>More</Label>
-      </NativeTabs.Trigger>
-    </NativeTabs>
-  );
+function TabIcon({ name, color, size = 22 }: { name: string; color: string; size?: number }) {
+  if (Platform.OS === "ios") {
+    return <SymbolView name={name} tintColor={color} size={size} />;
+  }
+  return <Ionicons name={name as any} size={size} color={color} />;
 }
 
-function ClassicTabLayout({ role }: { role: string }) {
-  const isIOS = Platform.OS === 'ios';
-  const isAdmin = role === 'super_admin';
-  const isOwner = role === 'gym_owner';
-  const isTrainer = role === 'trainer';
+export default function TabLayout() {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, backgroundColor: Colors.background, alignItems: "center", justifyContent: "center" }}>
+        <ActivityIndicator color={Colors.primary} size="large" />
+      </View>
+    );
+  }
+
+  if (!user) {
+    return <Redirect href="/login" />;
+  }
+
+  const isAdmin = user.role === "super_admin";
+  const isOwner = user.role === "gym_owner";
+  const isTrainer = user.role === "trainer";
 
   return (
     <Tabs
@@ -57,96 +41,125 @@ function ClassicTabLayout({ role }: { role: string }) {
         headerShown: false,
         tabBarStyle: {
           position: "absolute",
-          backgroundColor: isIOS ? "transparent" : Colors.tabBar,
+          backgroundColor: Platform.OS === "ios" ? "transparent" : Colors.tabBar,
           borderTopWidth: 1,
           borderTopColor: Colors.border,
           elevation: 0,
         },
         tabBarBackground: () =>
-          isIOS ? (
+          Platform.OS === "ios" ? (
             <BlurView intensity={80} tint="dark" style={StyleSheet.absoluteFill} />
           ) : (
             <View style={[StyleSheet.absoluteFill, { backgroundColor: Colors.tabBar }]} />
           ),
-        tabBarLabelStyle: { fontFamily: 'Inter_500Medium', fontSize: 11 },
+        tabBarLabelStyle: { fontFamily: "Inter_500Medium", fontSize: 11 },
       }}
     >
+      {/* ── Dashboard — all roles ── */}
       <Tabs.Screen
         name="index"
         options={{
           title: "Dashboard",
-          tabBarIcon: ({ color }) =>
-            isIOS
-              ? <SymbolView name="house" tintColor={color} size={22} />
-              : <Ionicons name="home-outline" size={22} color={color} />,
+          tabBarIcon: ({ color }) => (
+            <TabIcon name={Platform.OS === "ios" ? "house" : "home-outline"} color={color} />
+          ),
         }}
       />
+
+      {/* ── Leads — gym_owner only ── */}
       <Tabs.Screen
         name="leads"
         options={{
-          href: (isAdmin || isOwner) ? undefined : null,
+          href: isOwner ? undefined : null,
           title: "Leads",
-          tabBarIcon: ({ color }) =>
-            isIOS
-              ? <SymbolView name="person.badge.plus" tintColor={color} size={22} />
-              : <Ionicons name="people-outline" size={22} color={color} />,
+          tabBarIcon: ({ color }) => (
+            <TabIcon name={Platform.OS === "ios" ? "person.badge.plus" : "people-outline"} color={color} />
+          ),
         }}
       />
+
+      {/* ── Members — gym_owner only ── */}
       <Tabs.Screen
         name="members"
         options={{
-          href: (isAdmin || isOwner) ? undefined : null,
+          href: isOwner ? undefined : null,
           title: "Members",
-          tabBarIcon: ({ color }) =>
-            isIOS
-              ? <SymbolView name="person.2" tintColor={color} size={22} />
-              : <Ionicons name="person-outline" size={22} color={color} />,
+          tabBarIcon: ({ color }) => (
+            <TabIcon name={Platform.OS === "ios" ? "person.2" : "person-outline"} color={color} />
+          ),
         }}
       />
+
+      {/* ── Trainers — gym_owner only ── */}
+      <Tabs.Screen
+        name="trainers"
+        options={{
+          href: isOwner ? undefined : null,
+          title: "Trainers",
+          tabBarIcon: ({ color }) => (
+            <TabIcon name={Platform.OS === "ios" ? "figure.strengthtraining.traditional" : "barbell-outline"} color={color} />
+          ),
+        }}
+      />
+
+      {/* ── Gym Accounts — super_admin only ── */}
+      <Tabs.Screen
+        name="gyms"
+        options={{
+          href: isAdmin ? undefined : null,
+          title: "Gyms",
+          tabBarIcon: ({ color }) => (
+            <TabIcon name={Platform.OS === "ios" ? "building.2" : "business-outline"} color={color} />
+          ),
+        }}
+      />
+
+      {/* ── Activity Log — super_admin only ── */}
+      <Tabs.Screen
+        name="activity"
+        options={{
+          href: isAdmin ? undefined : null,
+          title: "Activity",
+          tabBarIcon: ({ color }) => (
+            <TabIcon name={Platform.OS === "ios" ? "chart.line.uptrend.xyaxis" : "pulse-outline"} color={color} />
+          ),
+        }}
+      />
+
+      {/* ── My Clients — trainer only ── */}
       <Tabs.Screen
         name="clients"
         options={{
-          href: (isAdmin || isOwner || isTrainer) ? undefined : null,
-          title: "Clients",
-          tabBarIcon: ({ color }) =>
-            isIOS
-              ? <SymbolView name="figure.strengthtraining.traditional" tintColor={color} size={22} />
-              : <Ionicons name="barbell-outline" size={22} color={color} />,
+          href: isTrainer ? undefined : null,
+          title: "My Clients",
+          tabBarIcon: ({ color }) => (
+            <TabIcon name={Platform.OS === "ios" ? "person.2" : "people-outline"} color={color} />
+          ),
         }}
       />
+
+      {/* ── Diet Plans — trainer only ── */}
+      <Tabs.Screen
+        name="diet"
+        options={{
+          href: isTrainer ? undefined : null,
+          title: "Diet Plans",
+          tabBarIcon: ({ color }) => (
+            <TabIcon name={Platform.OS === "ios" ? "fork.knife" : "nutrition-outline"} color={color} />
+          ),
+        }}
+      />
+
+      {/* ── More — all roles ── */}
       <Tabs.Screen
         name="more"
         options={{
           title: "More",
-          tabBarIcon: ({ color }) =>
-            isIOS
-              ? <SymbolView name="ellipsis.circle" tintColor={color} size={22} />
-              : <Ionicons name="ellipsis-horizontal-circle-outline" size={22} color={color} />,
+          tabBarIcon: ({ color }) => (
+            <TabIcon name={Platform.OS === "ios" ? "ellipsis.circle" : "ellipsis-horizontal-circle-outline"} color={color} />
+          ),
         }}
       />
     </Tabs>
   );
-}
-
-export default function TabLayout() {
-  const { user, loading } = useAuth();
-
-  // Show a spinner while we check auth state
-  if (loading) {
-    return (
-      <View style={{ flex: 1, backgroundColor: Colors.background, alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator color={Colors.primary} size="large" />
-      </View>
-    );
-  }
-
-  // Not authenticated — redirect to login using Expo Router's declarative Redirect
-  if (!user) {
-    return <Redirect href="/login" />;
-  }
-
-  if (isLiquidGlassAvailable()) {
-    return <NativeTabLayout role={user.role} />;
-  }
-  return <ClassicTabLayout role={user.role} />;
 }

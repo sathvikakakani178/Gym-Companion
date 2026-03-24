@@ -157,7 +157,7 @@ function TrainerDashboard() {
           <Text style={styles.sectionTitle}>Quick Actions</Text>
           {[
             { label: 'View My Clients', icon: 'people-outline', route: '/(tabs)/clients' },
-            { label: 'Manage Diet Plans', icon: 'nutrition-outline', route: '/(tabs)/clients' },
+            { label: 'Manage Diet Plans', icon: 'nutrition-outline', route: '/(tabs)/diet' },
           ].map(item => (
             <Pressable
               key={item.label}

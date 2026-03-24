@@ -1,13 +1,13 @@
 import React, { useState, useMemo } from 'react';
 import {
   View, Text, StyleSheet, FlatList, Pressable, TextInput,
-  Modal, ActivityIndicator, Alert,
+  Modal, ActivityIndicator, Alert, ScrollView,
 } from 'react-native';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
-import { useMembers, useProfiles, useInsertMember, useUpdateMember, useDeleteMember, useInsertActivity, useBranches } from '@/lib/hooks';
+import { useMembers, useTrainers, useInsertMember, useUpdateMember, useDeleteMember, useInsertActivity, useBranches } from '@/lib/hooks';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { Badge } from '@/components/Badge';
 import { Colors } from '@/constants/colors';
@@ -27,7 +27,7 @@ export default function MembersScreen() {
   const tabBarHeight = useBottomTabBarHeight();
   const insets = useSafeAreaInsets();
   const { data: members = [], isLoading } = useMembers(user?.gym_id);
-  const { data: trainers = [] } = useProfiles(user?.gym_id);
+  const { data: trainerList = [] } = useTrainers(user?.gym_id);
   const { data: branches = [] } = useBranches(user?.gym_id);
   const insertMember = useInsertMember();
   const updateMember = useUpdateMember();
@@ -38,6 +38,8 @@ export default function MembersScreen() {
   const [filter, setFilter] = useState<'all' | 'active' | 'expiring' | 'expired'>('all');
   const [showAdd, setShowAdd] = useState(false);
   const [selected, setSelected] = useState<any>(null);
+  const [editing, setEditing] = useState(false);
+  const [editForm, setEditForm] = useState({ name: '', phone: '', plan: '', trainer_id: '', branch_id: '', expiry_date: '' });
   const [form, setForm] = useState({ name: '', phone: '', plan: 'Monthly', trainer_id: '', branch_id: '' });
 
   const filtered = useMemo(() => {
@@ -193,47 +195,164 @@ export default function MembersScreen() {
       )}
 
       {/* Member detail modal */}
-      <Modal visible={!!selected} animationType="slide" presentationStyle="formSheet" onRequestClose={() => setSelected(null)}>
+      <Modal visible={!!selected} animationType="slide" presentationStyle="formSheet" onRequestClose={() => { setSelected(null); setEditing(false); }}>
         {selected && (
           <View style={[styles.modal, { paddingTop: insets.top + 16 }]}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Member Profile</Text>
-              <Pressable onPress={() => setSelected(null)}><Ionicons name="close" size={24} color={Colors.text} /></Pressable>
+              <Text style={styles.modalTitle}>{editing ? 'Edit Member' : 'Member Profile'}</Text>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                {!editing && (
+                  <Pressable
+                    style={styles.editIconBtn}
+                    onPress={() => {
+                      setEditForm({
+                        name: selected.name,
+                        phone: selected.phone,
+                        plan: selected.plan,
+                        trainer_id: selected.trainer_id || '',
+                        branch_id: selected.branch_id || '',
+                        expiry_date: selected.expiry_date,
+                      });
+                      setEditing(true);
+                    }}
+                  >
+                    <Ionicons name="pencil-outline" size={18} color={Colors.primary} />
+                  </Pressable>
+                )}
+                <Pressable onPress={() => { setSelected(null); setEditing(false); }}>
+                  <Ionicons name="close" size={24} color={Colors.text} />
+                </Pressable>
+              </View>
             </View>
-            <View style={styles.detailAvatar}>
-              <Text style={styles.detailAvatarText}>{selected.name[0]}</Text>
-            </View>
-            <Text style={styles.detailName}>{selected.name}</Text>
-            <Text style={styles.detailPhone}>{selected.phone}</Text>
-            <View style={styles.detailGrid}>
-              {[
-                { label: 'Plan', value: selected.plan },
-                { label: 'Trainer', value: selected.trainer?.name || 'Unassigned' },
-                { label: 'Joined', value: selected.joining_date },
-                { label: 'Expires', value: selected.expiry_date },
-              ].map(row => (
-                <View key={row.label} style={styles.detailCell}>
-                  <Text style={styles.detailCellLabel}>{row.label}</Text>
-                  <Text style={styles.detailCellValue}>{row.value}</Text>
+
+            {editing ? (
+              <ScrollView showsVerticalScrollIndicator={false}>
+                {[
+                  { field: 'name', label: 'Full Name', keyboard: 'default' },
+                  { field: 'phone', label: 'Phone', keyboard: 'phone-pad' },
+                  { field: 'expiry_date', label: 'Expiry Date (YYYY-MM-DD)', keyboard: 'default' },
+                ].map(({ field, label, keyboard }) => (
+                  <View key={field} style={styles.formField}>
+                    <Text style={styles.formLabel}>{label}</Text>
+                    <TextInput
+                      style={styles.formInput}
+                      value={(editForm as any)[field]}
+                      onChangeText={v => setEditForm(f => ({ ...f, [field]: v }))}
+                      keyboardType={keyboard as any}
+                      placeholderTextColor={Colors.textMuted}
+                    />
+                  </View>
+                ))}
+                <View style={styles.formField}>
+                  <Text style={styles.formLabel}>Plan</Text>
+                  <View style={styles.planRow}>
+                    {PLANS.map(p => (
+                      <Pressable
+                        key={p}
+                        style={[styles.planChip, editForm.plan === p && styles.planChipActive]}
+                        onPress={() => setEditForm(f => ({ ...f, plan: p }))}
+                      >
+                        <Text style={[styles.planChipText, editForm.plan === p && { color: Colors.primary }]}>{p}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
                 </View>
-              ))}
-            </View>
-            <Pressable
-              style={[styles.renewBtn, updateMember.isPending && { opacity: 0.6 }]}
-              onPress={() => handleRenew(selected)}
-              disabled={updateMember.isPending}
-            >
-              {updateMember.isPending ? <ActivityIndicator color="#000" /> : (
-                <>
-                  <Ionicons name="refresh-circle" size={18} color="#000" />
-                  <Text style={styles.renewBtnText}>Renew Membership</Text>
-                </>
-              )}
-            </Pressable>
-            <Pressable style={styles.deleteBtn} onPress={() => handleDelete(selected)}>
-              <Ionicons name="trash-outline" size={16} color={Colors.danger} />
-              <Text style={styles.deleteBtnText}>Delete Member</Text>
-            </Pressable>
+                <View style={styles.formField}>
+                  <Text style={styles.formLabel}>Trainer</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    {[{ profile_id: '', profile: { name: 'Unassigned' } }, ...trainerList].map((t: any) => (
+                      <Pressable
+                        key={t.profile_id}
+                        style={[styles.planChip, editForm.trainer_id === t.profile_id && styles.planChipActive, { marginRight: 8 }]}
+                        onPress={() => setEditForm(f => ({ ...f, trainer_id: t.profile_id }))}
+                      >
+                        <Text style={[styles.planChipText, editForm.trainer_id === t.profile_id && { color: Colors.primary }]}>
+                          {t.profile?.name || 'Unassigned'}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                </View>
+                <View style={[styles.formField, { marginBottom: 24 }]}>
+                  <Text style={styles.formLabel}>Branch</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    {[{ id: '', name: 'None' }, ...branches].map((b: any) => (
+                      <Pressable
+                        key={b.id}
+                        style={[styles.planChip, editForm.branch_id === b.id && styles.planChipActive, { marginRight: 8 }]}
+                        onPress={() => setEditForm(f => ({ ...f, branch_id: b.id }))}
+                      >
+                        <Text style={[styles.planChipText, editForm.branch_id === b.id && { color: Colors.primary }]}>{b.name}</Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                </View>
+                <View style={{ flexDirection: 'row', gap: 10 }}>
+                  <Pressable
+                    style={[styles.submitBtn, { flex: 1 }, updateMember.isPending && { opacity: 0.6 }]}
+                    onPress={() => {
+                      updateMember.mutate(
+                        { id: selected.id, name: editForm.name, phone: editForm.phone, plan: editForm.plan,
+                          trainer_id: editForm.trainer_id || null, branch_id: editForm.branch_id || null,
+                          expiry_date: editForm.expiry_date },
+                        {
+                          onSuccess: () => {
+                            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                            setEditing(false);
+                            setSelected(null);
+                            insertActivity.mutate({ gym_id: user?.gym_id || null, actor_name: user?.name || 'Owner', action: 'Updated member', details: editForm.name });
+                          },
+                          onError: (e: any) => Alert.alert('Error', e.message),
+                        }
+                      );
+                    }}
+                    disabled={updateMember.isPending}
+                  >
+                    {updateMember.isPending ? <ActivityIndicator color="#000" /> : <Text style={styles.submitBtnText}>Save Changes</Text>}
+                  </Pressable>
+                  <Pressable style={[styles.cancelEditBtn]} onPress={() => setEditing(false)}>
+                    <Text style={styles.cancelEditBtnText}>Cancel</Text>
+                  </Pressable>
+                </View>
+              </ScrollView>
+            ) : (
+              <>
+                <View style={styles.detailAvatar}>
+                  <Text style={styles.detailAvatarText}>{selected.name[0]}</Text>
+                </View>
+                <Text style={styles.detailName}>{selected.name}</Text>
+                <Text style={styles.detailPhone}>{selected.phone}</Text>
+                <View style={styles.detailGrid}>
+                  {[
+                    { label: 'Plan', value: selected.plan },
+                    { label: 'Trainer', value: selected.trainer?.name || 'Unassigned' },
+                    { label: 'Joined', value: selected.joining_date },
+                    { label: 'Expires', value: selected.expiry_date },
+                  ].map(row => (
+                    <View key={row.label} style={styles.detailCell}>
+                      <Text style={styles.detailCellLabel}>{row.label}</Text>
+                      <Text style={styles.detailCellValue}>{row.value}</Text>
+                    </View>
+                  ))}
+                </View>
+                <Pressable
+                  style={[styles.renewBtn, updateMember.isPending && { opacity: 0.6 }]}
+                  onPress={() => handleRenew(selected)}
+                  disabled={updateMember.isPending}
+                >
+                  {updateMember.isPending ? <ActivityIndicator color="#000" /> : (
+                    <>
+                      <Ionicons name="refresh-circle" size={18} color="#000" />
+                      <Text style={styles.renewBtnText}>Renew Membership</Text>
+                    </>
+                  )}
+                </Pressable>
+                <Pressable style={styles.deleteBtn} onPress={() => handleDelete(selected)}>
+                  <Ionicons name="trash-outline" size={16} color={Colors.danger} />
+                  <Text style={styles.deleteBtnText}>Delete Member</Text>
+                </Pressable>
+              </>
+            )}
           </View>
         )}
       </Modal>
@@ -275,6 +394,40 @@ export default function MembersScreen() {
               ))}
             </View>
           </View>
+          {trainerList.length > 0 && (
+            <View style={styles.formField}>
+              <Text style={styles.formLabel}>Trainer (optional)</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                {[{ profile_id: '', profile: { name: 'None' } }, ...trainerList].map((t: any) => (
+                  <Pressable
+                    key={t.profile_id}
+                    style={[styles.planChip, form.trainer_id === t.profile_id && styles.planChipActive, { marginRight: 8 }]}
+                    onPress={() => setForm(f => ({ ...f, trainer_id: t.profile_id }))}
+                  >
+                    <Text style={[styles.planChipText, form.trainer_id === t.profile_id && { color: Colors.primary }]}>
+                      {t.profile?.name || 'None'}
+                    </Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+          {branches.length > 0 && (
+            <View style={styles.formField}>
+              <Text style={styles.formLabel}>Branch (optional)</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                {[{ id: '', name: 'None' }, ...branches].map((b: any) => (
+                  <Pressable
+                    key={b.id}
+                    style={[styles.planChip, form.branch_id === b.id && styles.planChipActive, { marginRight: 8 }]}
+                    onPress={() => setForm(f => ({ ...f, branch_id: b.id }))}
+                  >
+                    <Text style={[styles.planChipText, form.branch_id === b.id && { color: Colors.primary }]}>{b.name}</Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
+          )}
           <Pressable
             style={[styles.submitBtn, insertMember.isPending && { opacity: 0.6 }]}
             onPress={handleAdd}
@@ -367,4 +520,13 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', marginTop: 8,
   },
   submitBtnText: { fontFamily: 'Inter_600SemiBold', fontSize: 16, color: '#000' },
+  editIconBtn: {
+    width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: Colors.primaryMuted, borderWidth: 1, borderColor: Colors.primary + '40',
+  },
+  cancelEditBtn: {
+    height: 50, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: Colors.secondary, borderWidth: 1, borderColor: Colors.border, paddingHorizontal: 20, marginTop: 8,
+  },
+  cancelEditBtnText: { fontFamily: 'Inter_500Medium', fontSize: 15, color: Colors.textSecondary },
 });
