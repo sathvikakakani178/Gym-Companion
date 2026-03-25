@@ -25,7 +25,7 @@ export function useSceneNarration(text: string) {
       utterance.rate = 0.9;
       utterance.pitch = 1.0;
       utterance.volume = 1.0;
-      utterance.lang = 'en-US';
+      utterance.lang = 'te-IN';
       window.speechSynthesis.speak(utterance);
     }
     // No cleanup that cancels speech, as exit animations would cause premature cancellation
@@ -122,7 +122,7 @@ export default function VideoTemplate() {
 
 // SCENE 1
 function Scene1Intro() {
-  useSceneNarration("Introducing GymLeads — the complete gym management platform.");
+  useSceneNarration("జిమ్ లీడ్స్ కి స్వాగతం — పూర్తి జిమ్ మేనేజ్‌మెంట్ ప్లాట్‌ఫారమ్.");
   return (
     <motion.div 
       className="absolute inset-0 z-10 flex flex-col items-center justify-center w-full h-full bg-[#0D0F14]/50"
@@ -161,7 +161,7 @@ function Scene1Intro() {
 
 // SCENE 2
 function Scene2OwnerLogin() {
-  useSceneNarration("Gym owners log in to get a full view of their business.");
+  useSceneNarration("జిమ్ యజమానులు తమ వ్యాపారాన్ని పూర్తిగా చూసుకోవడానికి లాగిన్ అవుతారు.");
   
   const emailText = "owner@fitzone.com";
   const [emailChars, setEmailChars] = useState(0);
@@ -229,7 +229,7 @@ function Scene2OwnerLogin() {
 
 // SCENE 3
 function Scene3OwnerDashboard() {
-  useSceneNarration("The owner dashboard shows live stats — enquiries, trials booked, active members, and expiring soon alerts.");
+  useSceneNarration("యజమాని డాష్‌బోర్డ్‌లో లైవ్ స్టాట్స్ చూడవచ్చు — విచారణలు, ట్రయల్స్, యాక్టివ్ మెంబర్లు, మరియు గడువు ముగుస్తున్న హెచ్చరికలు.");
   return (
     <motion.div 
       className="absolute inset-0 z-10 w-full h-full flex flex-col items-center justify-center p-12 perspective-1000"
@@ -303,7 +303,7 @@ function Scene3OwnerDashboard() {
 
 // SCENE 4
 function Scene4MembersPage() {
-  useSceneNarration("Manage all your members in one place. Filter by status, add new members, and track every renewal.");
+  useSceneNarration("మీ అందరు మెంబర్లను ఒకే చోట నిర్వహించండి. స్టేటస్ వారీగా ఫిల్టర్ చేయండి, కొత్త మెంబర్లను జోడించండి, మరియు రెన్యువల్‌లను ట్రాక్ చేయండి.");
   const [openCard, setOpenCard] = useState(false);
 
   useEffect(() => {
@@ -386,7 +386,7 @@ function Scene4MembersPage() {
 
 // SCENE 5
 function Scene5AddMember() {
-  useSceneNarration("Adding a new member takes seconds. Fill in their details, pick a plan, assign a trainer.");
+  useSceneNarration("కొత్త మెంబర్‌ని జోడించడం చాలా సులభం. వివరాలు నమోదు చేసి, ప్లాన్ ఎంచుకుని, ట్రైనర్‌ని అసైన్ చేయండి.");
   return (
     <motion.div 
       className="absolute inset-0 z-10 w-full h-full flex flex-col items-center justify-center p-12"
@@ -439,7 +439,7 @@ function Scene5AddMember() {
 
 // SCENE 6
 function Scene6TrainersPage() {
-  useSceneNarration("View and manage your coaching staff. See each trainer's specialization, client load, and contact info.");
+  useSceneNarration("మీ కోచింగ్ స్టాఫ్‌ని చూడండి మరియు నిర్వహించండి. ప్రతి ట్రైనర్ స్పెషలైజేషన్, క్లయింట్ సంఖ్య మరియు సంప్రదింపు వివరాలు చూడండి.");
   return (
     <motion.div 
       className="absolute inset-0 z-10 w-full h-full flex flex-col items-center justify-center p-12"
@@ -499,7 +499,7 @@ function Scene6TrainersPage() {
 
 // SCENE 7
 function Scene7WhatsApp() {
-  useSceneNarration("Send automated WhatsApp messages to members. Broadcast renewals, trial reminders — all from the platform.");
+  useSceneNarration("మెంబర్లకు ఆటోమేటిక్ వాట్సాప్ మెసేజ్‌లు పంపండి. రెన్యువల్ రిమైండర్లు, ట్రయల్ కన్ఫర్మేషన్లు — అన్నీ ప్లాట్‌ఫారమ్ నుంచే.");
   return (
     <motion.div 
       className="absolute inset-0 z-10 w-full h-full flex flex-col items-center justify-center p-12"
@@ -564,7 +564,7 @@ function Scene7WhatsApp() {
 
 // SCENE 8
 function Scene8TrainerLogin() {
-  useSceneNarration("Trainers get their own secure login with a personalized dashboard.");
+  useSceneNarration("ట్రైనర్లు తమ స్వంత సురక్షిత పోర్టల్ ద్వారా లాగిన్ అయి పర్సనలైజ్డ్ డాష్‌బోర్డ్ పొందుతారు.");
   
   const emailText = "trainer@fitzone.com";
   const [emailChars, setEmailChars] = useState(0);
@@ -611,7 +611,7 @@ function Scene8TrainerLogin() {
 
 // SCENE 9
 function Scene9TrainerDashboard() {
-  useSceneNarration("Each trainer sees their assigned clients and active diet plans at a glance.");
+  useSceneNarration("ప్రతి ట్రైనర్ తమ క్లయింట్లు మరియు యాక్టివ్ డైట్ ప్లాన్‌లను ఒకే చూపులో చూడగలరు.");
   return (
     <motion.div 
       className="absolute inset-0 z-10 w-full h-full flex flex-col items-center justify-center p-12"
@@ -661,7 +661,7 @@ function Scene9TrainerDashboard() {
 
 // SCENE 10
 function Scene10MyClientsPage() {
-  useSceneNarration("The clients view gives trainers full health profiles — weight, target, height, goal, and trainer notes.");
+  useSceneNarration("క్లయింట్ వ్యూలో ట్రైనర్లు పూర్తి ఆరోగ్య సమాచారం చూడగలరు — బరువు, లక్ష్యం, ఎత్తు, గోల్ మరియు ట్రైనర్ నోట్స్.");
   return (
     <motion.div 
       className="absolute inset-0 z-10 w-full h-full flex flex-col items-center justify-center p-12"
@@ -705,7 +705,7 @@ function Scene10MyClientsPage() {
 
 // SCENE 11
 function Scene11DietPlansPage() {
-  useSceneNarration("Trainers build personalized daily meal plans for every client. Pick the client, pick the day, and fill in each meal slot.");
+  useSceneNarration("ట్రైనర్లు ప్రతి క్లయింట్‌కు రోజువారీ భోజన ప్లాన్‌లు తయారు చేస్తారు. క్లయింట్‌ని ఎంచుకుని, రోజు ఎంచుకుని, ప్రతి మీల్ వివరాలు నమోదు చేయండి.");
   return (
     <motion.div 
       className="absolute inset-0 z-10 w-full h-full flex flex-col items-center justify-center p-12"
@@ -776,7 +776,7 @@ function Scene11DietPlansPage() {
 
 // SCENE 12
 function Scene12Outro() {
-  useSceneNarration("GymLeads — grow your gym, empower your trainers, delight your members.");
+  useSceneNarration("జిమ్ లీడ్స్ — మీ జిమ్‌ని వృద్ధి చేసుకోండి, ట్రైనర్లను శక్తివంతం చేయండి, మెంబర్లను సంతోషపెట్టండి.");
   return (
     <motion.div 
       className="absolute inset-0 z-10 flex flex-col items-center justify-center w-full h-full bg-[#0D0F14]"
