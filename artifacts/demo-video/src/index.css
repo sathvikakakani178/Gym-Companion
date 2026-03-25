@@ -1,0 +1,56 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@import "tailwindcss";
+
+/* REPLACE THESE -- define your own palette and fonts for each video */
+:root {
+  --color-primary: #2ECC71;
+  --color-secondary: #1E2433;
+  --color-accent: #2ECC71;
+
+  --color-bg-light: #0D0F14;
+  --color-bg-dark: #0D0F14;
+  --color-bg-muted: #161922;
+
+  --color-text-primary: #F0F4FF;
+  --color-text-secondary: #8A94A6;
+  --color-text-muted: #8A94A6;
+  --color-text-inverse: #0D0F14;
+
+  --color-success: #2ECC71;
+  --color-warning: #F59E0B;
+  --color-error: #EF4444;
+
+  --font-display: 'Inter', sans-serif;
+  --font-body: 'Inter', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+@theme inline {
+  --color-primary: var(--color-primary);
+  --color-secondary: var(--color-secondary);
+  --color-accent: var(--color-accent);
+  --color-bg-light: var(--color-bg-light);
+  --color-bg-dark: var(--color-bg-dark);
+  --color-bg-muted: var(--color-bg-muted);
+  --color-text-primary: var(--color-text-primary);
+  --color-text-secondary: var(--color-text-secondary);
+  --color-text-muted: var(--color-text-muted);
+  --color-text-inverse: var(--color-text-inverse);
+  --color-success: var(--color-success);
+  --color-warning: var(--color-warning);
+  --color-error: var(--color-error);
+  --font-display: var(--font-display);
+  --font-body: var(--font-body);
+  --font-mono: var(--font-mono);
+}
+
+html {
+  /* Scale 1rem to perfectly match 1920px width (16px base / 1920px = 0.833333vw) */
+  font-size: 0.833333vw;
+}
+
+body {
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
