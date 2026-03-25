@@ -20,15 +20,37 @@ export const SCENE_DURATIONS = {
 export function useSceneNarration(text: string) {
   useEffect(() => {
     window.speechSynthesis.cancel();
-    if (text) {
+    if (!text) return;
+
+    const speak = () => {
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.rate = 0.82;
-      utterance.pitch = 1.0;
+      utterance.pitch = 1.05;
       utterance.volume = 1.0;
-      utterance.lang = 'en-US';
+      utterance.lang = 'en-IN';
+
+      const voices = window.speechSynthesis.getVoices();
+      const indianVoice =
+        voices.find(v => v.lang === 'en-IN') ||
+        voices.find(v => v.lang.startsWith('en-IN')) ||
+        voices.find(v => v.name.toLowerCase().includes('india')) ||
+        voices.find(v => v.name.toLowerCase().includes('ravi')) ||
+        voices.find(v => v.name.toLowerCase().includes('veena')) ||
+        null;
+      if (indianVoice) utterance.voice = indianVoice;
+
       window.speechSynthesis.speak(utterance);
+    };
+
+    const voices = window.speechSynthesis.getVoices();
+    if (voices.length > 0) {
+      speak();
+    } else {
+      window.speechSynthesis.onvoiceschanged = () => {
+        speak();
+        window.speechSynthesis.onvoiceschanged = null;
+      };
     }
-    // No cleanup that cancels speech, as exit animations would cause premature cancellation
   }, [text]);
 }
 
