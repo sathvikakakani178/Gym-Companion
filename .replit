@@ -48,3 +48,9 @@ timeoutMs = 20000
 
 [nix]
 channel = "stable-25_05"
+
+[userenv]
+
+[userenv.shared]
+EXPO_PUBLIC_SUPABASE_ANON_KEY = "https://ukzqtxlckbwpmrvvekhc.supabase.co"
+EXPO_PUBLIC_SUPABASE_URL = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVrenF0eGxja2J3cG1ydnZla2hjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQwOTY0MTIsImV4cCI6MjA4OTY3MjQxMn0.vpPINqkenWDzVPFJXU1nVYnFUcMOInqhpV7Pz8ikmlA"
