@@ -3,18 +3,18 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useVideoPlayer } from '@/lib/video';
 
 export const SCENE_DURATIONS = {
-  intro: 3000,
-  ownerLogin: 5000,
-  ownerDashboard: 7000,
-  membersPage: 7000,
-  addMember: 5000,
-  trainersPage: 6000,
-  whatsapp: 6000,
-  trainerLogin: 5000,
-  trainerDashboard: 6000,
-  myClientsPage: 6000,
-  dietPlansPage: 8000,
-  outro: 4000,
+  intro: 8000,
+  ownerLogin: 10000,
+  ownerDashboard: 11000,
+  membersPage: 12000,
+  addMember: 11000,
+  trainersPage: 11000,
+  whatsapp: 10000,
+  trainerLogin: 8000,
+  trainerDashboard: 10000,
+  myClientsPage: 11000,
+  dietPlansPage: 13000,
+  outro: 11000,
 };
 
 export function useSceneNarration(text: string) {
@@ -22,10 +22,10 @@ export function useSceneNarration(text: string) {
     window.speechSynthesis.cancel();
     if (text) {
       const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = 0.9;
+      utterance.rate = 0.82;
       utterance.pitch = 1.0;
       utterance.volume = 1.0;
-      utterance.lang = 'te-IN';
+      utterance.lang = 'en-US';
       window.speechSynthesis.speak(utterance);
     }
     // No cleanup that cancels speech, as exit animations would cause premature cancellation
@@ -122,7 +122,7 @@ export default function VideoTemplate() {
 
 // SCENE 1
 function Scene1Intro() {
-  useSceneNarration("జిమ్ లీడ్స్ కి స్వాగతం — పూర్తి జిమ్ మేనేజ్‌మెంట్ ప్లాట్‌ఫారమ్.");
+  useSceneNarration("Meeru gym business ni next level ki teesukuveltundi GymLeads. Ee platform tho meeru complete gym ni oka chota nundi manage cheyyochu.");
   return (
     <motion.div 
       className="absolute inset-0 z-10 flex flex-col items-center justify-center w-full h-full bg-[#0D0F14]/50"
@@ -161,7 +161,7 @@ function Scene1Intro() {
 
 // SCENE 2
 function Scene2OwnerLogin() {
-  useSceneNarration("జిమ్ యజమానులు తమ వ్యాపారాన్ని పూర్తిగా చూసుకోవడానికి లాగిన్ అవుతారు.");
+  useSceneNarration("Gym owner ga meeru ikkade login avutaru. Meeru email, password enter cheyyi — adi chala simple ga untundi. Sign in chesaka meeru entire business overview chudochu.");
   
   const emailText = "owner@fitzone.com";
   const [emailChars, setEmailChars] = useState(0);
@@ -229,7 +229,7 @@ function Scene2OwnerLogin() {
 
 // SCENE 3
 function Scene3OwnerDashboard() {
-  useSceneNarration("యజమాని డాష్‌బోర్డ్‌లో లైవ్ స్టాట్స్ చూడవచ్చు — విచారణలు, ట్రయల్స్, యాక్టివ్ మెంబర్లు, మరియు గడువు ముగుస్తున్న హెచ్చరికలు.");
+  useSceneNarration("Ee owner dashboard lo anni live stats real time lo untayi. Enquiries ela vastunnayo, trials ela book avutunnayo, active members ela unnaro — anni oka place lo chudochu. Expiring soon alert kuda untundi, taggipotunna memberships ni miss avvamu.");
   return (
     <motion.div 
       className="absolute inset-0 z-10 w-full h-full flex flex-col items-center justify-center p-12 perspective-1000"
@@ -303,7 +303,7 @@ function Scene3OwnerDashboard() {
 
 // SCENE 4
 function Scene4MembersPage() {
-  useSceneNarration("మీ అందరు మెంబర్లను ఒకే చోట నిర్వహించండి. స్టేటస్ వారీగా ఫిల్టర్ చేయండి, కొత్త మెంబర్లను జోడించండి, మరియు రెన్యువల్‌లను ట్రాక్ చేయండి.");
+  useSceneNarration("Ee Members screen lo meeru anni gym members ni easily manage cheyyochu. Active members, expiring members, expired members — status batti filter cheyyochu. Renewal time vachindi ante, oka click tho renew cheyyochu. Chala convenient ga untundi.");
   const [openCard, setOpenCard] = useState(false);
 
   useEffect(() => {
@@ -386,7 +386,7 @@ function Scene4MembersPage() {
 
 // SCENE 5
 function Scene5AddMember() {
-  useSceneNarration("కొత్త మెంబర్‌ని జోడించడం చాలా సులభం. వివరాలు నమోదు చేసి, ప్లాన్ ఎంచుకుని, ట్రైనర్‌ని అసైన్ చేయండి.");
+  useSceneNarration("New member add cheyyatam chala easy. Valla name, phone number enter cheyyi, plan select cheyyi, trainer assign cheyyi — adi chala seconds lo complete avutundi. Paper work em ledu, anni digital ga untundi.");
   return (
     <motion.div 
       className="absolute inset-0 z-10 w-full h-full flex flex-col items-center justify-center p-12"
@@ -439,7 +439,7 @@ function Scene5AddMember() {
 
 // SCENE 6
 function Scene6TrainersPage() {
-  useSceneNarration("మీ కోచింగ్ స్టాఫ్‌ని చూడండి మరియు నిర్వహించండి. ప్రతి ట్రైనర్ స్పెషలైజేషన్, క్లయింట్ సంఖ్య మరియు సంప్రదింపు వివరాలు చూడండి.");
+  useSceneNarration("Trainers page lo meeru complete coaching staff ni chudochu. Prathi trainer ki valla specialization, valla daggara unna clients count, contact information — anni oka card lo clear ga chupistundi. Trainer add cheyyatam, edit cheyyatam — anni ikkade manage cheyyochu.");
   return (
     <motion.div 
       className="absolute inset-0 z-10 w-full h-full flex flex-col items-center justify-center p-12"
@@ -499,7 +499,7 @@ function Scene6TrainersPage() {
 
 // SCENE 7
 function Scene7WhatsApp() {
-  useSceneNarration("మెంబర్లకు ఆటోమేటిక్ వాట్సాప్ మెసేజ్‌లు పంపండి. రెన్యువల్ రిమైండర్లు, ట్రయల్ కన్ఫర్మేషన్లు — అన్నీ ప్లాట్‌ఫారమ్ నుంచే.");
+  useSceneNarration("WhatsApp integration through GymLeads chala powerful ga untundi. Members ki automatic messages veltathayi — renewal reminders, trial confirmations, welcome messages — anni meeru manually cheyyyakunda platform nundi directly pammpinchochu.");
   return (
     <motion.div 
       className="absolute inset-0 z-10 w-full h-full flex flex-col items-center justify-center p-12"
@@ -564,7 +564,7 @@ function Scene7WhatsApp() {
 
 // SCENE 8
 function Scene8TrainerLogin() {
-  useSceneNarration("ట్రైనర్లు తమ స్వంత సురక్షిత పోర్టల్ ద్వారా లాగిన్ అయి పర్సనలైజ్డ్ డాష్‌బోర్డ్ పొందుతారు.");
+  useSceneNarration("Trainers ki valla own separate login portal untundi. Ikkade valla credentials tho login avutaru — valla ki valla clients, valla diet plans, anni separate ga vachesthayi. Gym owner data ni mix avvadam em untundi.");
   
   const emailText = "trainer@fitzone.com";
   const [emailChars, setEmailChars] = useState(0);
@@ -611,7 +611,7 @@ function Scene8TrainerLogin() {
 
 // SCENE 9
 function Scene9TrainerDashboard() {
-  useSceneNarration("ప్రతి ట్రైనర్ తమ క్లయింట్లు మరియు యాక్టివ్ డైట్ ప్లాన్‌లను ఒకే చూపులో చూడగలరు.");
+  useSceneNarration("Trainer login chesaka valla ki oka clean dashboard vastundi. Valla assigned clients ela unnaro, inta mandi ki diet plans ready ga unnaayo — anni oka glance lo chudochu. Chala time saving ga untundi trainers ki.");
   return (
     <motion.div 
       className="absolute inset-0 z-10 w-full h-full flex flex-col items-center justify-center p-12"
@@ -661,7 +661,7 @@ function Scene9TrainerDashboard() {
 
 // SCENE 10
 function Scene10MyClientsPage() {
-  useSceneNarration("క్లయింట్ వ్యూలో ట్రైనర్లు పూర్తి ఆరోగ్య సమాచారం చూడగలరు — బరువు, లక్ష్యం, ఎత్తు, గోల్ మరియు ట్రైనర్ నోట్స్.");
+  useSceneNarration("My Clients screen lo trainers valla clients full health profile chudochu. Current weight, target weight, height, fitness goal — anni information clear ga untundi. Plus trainer valla own notes kuda ikkade save cheyyochu, edi miss avvadu.");
   return (
     <motion.div 
       className="absolute inset-0 z-10 w-full h-full flex flex-col items-center justify-center p-12"
@@ -705,7 +705,7 @@ function Scene10MyClientsPage() {
 
 // SCENE 11
 function Scene11DietPlansPage() {
-  useSceneNarration("ట్రైనర్లు ప్రతి క్లయింట్‌కు రోజువారీ భోజన ప్లాన్‌లు తయారు చేస్తారు. క్లయింట్‌ని ఎంచుకుని, రోజు ఎంచుకుని, ప్రతి మీల్ వివరాలు నమోదు చేయండి.");
+  useSceneNarration("Diet Plans screen lo trainers prathi client ki personalized meal plans create cheyyochu. Client select cheyyi, day choose cheyyi — breakfast, lunch, dinner, snacks anni meal slots lo food items, portions enter cheyyochu. Daily calorie count kuda automatic ga calculate avutundi, trainer ki chala easy ga untundi.");
   return (
     <motion.div 
       className="absolute inset-0 z-10 w-full h-full flex flex-col items-center justify-center p-12"
@@ -776,7 +776,7 @@ function Scene11DietPlansPage() {
 
 // SCENE 12
 function Scene12Outro() {
-  useSceneNarration("జిమ్ లీడ్స్ — మీ జిమ్‌ని వృద్ధి చేసుకోండి, ట్రైనర్లను శక్తివంతం చేయండి, మెంబర్లను సంతోషపెట్టండి.");
+  useSceneNarration("Ee platform tho meeru gym ni modernize cheyyochu, trainers ni empower cheyyochu, members ni happy ga pettachu. GymLeads — meeru gym business ki perfect partner. Today nundi start cheyyandi, meeru gym ki different ga untundi.");
   return (
     <motion.div 
       className="absolute inset-0 z-10 flex flex-col items-center justify-center w-full h-full bg-[#0D0F14]"
