@@ -3,14 +3,16 @@ import makeWASocket, {
   DisconnectReason,
   fetchLatestBaileysVersion,
 } from '@whiskeysockets/baileys';
+import type { ILogger } from '@whiskeysockets/baileys/lib/Utils/logger.js';
 import * as QRCode from 'qrcode';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import pino from 'pino';
 import { logger } from './logger.js';
 
-const SESSIONS_DIR = '/tmp/gymleads-whatsapp';
-const silentLogger = pino({ level: 'silent' });
+export const SESSIONS_DIR = '/tmp/gymleads-whatsapp';
+
+const silentLogger = pino({ level: 'silent' }) as unknown as ILogger;
 
 export type SessionStatus = 'disconnected' | 'connecting' | 'connected';
 
@@ -52,7 +54,7 @@ async function createSession(gymId: string): Promise<Session> {
       auth: state,
       printQRInTerminal: false,
       browser: ['GymLeads', 'Chrome', '3.0'],
-      logger: silentLogger as any,
+      logger: silentLogger,
       generateHighQualityLinkPreview: false,
       syncFullHistory: false,
     });
@@ -82,6 +84,7 @@ async function createSession(gymId: string): Promise<Session> {
         const loggedOut = statusCode === DisconnectReason.loggedOut;
         session.status = 'disconnected';
         session.sock = null;
+        session.qrBase64 = null;
         logger.info({ gymId, loggedOut }, 'WhatsApp disconnected');
         if (!loggedOut) {
           session.reconnectTimer = setTimeout(() => createSession(gymId), 8000);
@@ -116,11 +119,7 @@ export function getSessionStatus(gymId: string): {
   return { status: s.status, phone: s.phone, qrBase64: s.qrBase64 };
 }
 
-export async function sendWhatsAppMessage(
-  gymId: string,
-  phone: string,
-  text: string,
-): Promise<void> {
+export async function sendWhatsAppMessage(gymId: string, phone: string, text: string): Promise<void> {
   const s = sessions.get(gymId);
   if (!s || s.status !== 'connected' || !s.sock) {
     throw new Error(`WhatsApp not connected for gym: ${gymId}`);
@@ -141,6 +140,26 @@ export async function disconnectSession(gymId: string): Promise<void> {
     }
   }
   sessions.delete(gymId);
+}
+
+/**
+ * Rehydrate sessions for gyms that have saved auth state on disk.
+ * Called once at startup so delivery resumes without requiring a new QR scan.
+ */
+export async function rehydrateSessionsFromDisk(): Promise<void> {
+  if (!existsSync(SESSIONS_DIR)) return;
+  const gymIds = readdirSync(SESSIONS_DIR).filter(name =>
+    existsSync(path.join(SESSIONS_DIR, name, 'creds.json')),
+  );
+  if (gymIds.length === 0) return;
+  logger.info({ count: gymIds.length }, 'Rehydrating WhatsApp sessions from disk');
+  for (const gymId of gymIds) {
+    try {
+      await getOrCreateSession(gymId);
+    } catch (err) {
+      logger.error({ gymId, err }, 'Failed to rehydrate WhatsApp session');
+    }
+  }
 }
 
 export async function initExistingSessions(gymIds: string[]): Promise<void> {

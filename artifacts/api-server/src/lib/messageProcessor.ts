@@ -4,6 +4,22 @@ import { logger } from './logger.js';
 
 let processorInterval: NodeJS.Timeout | null = null;
 
+async function markFailed(id: string, reason: string): Promise<void> {
+  // Try with error_note column first; fall back if column doesn't exist
+  const { error } = await supabase
+    .from('whatsapp_logs')
+    .update({ status: 'failed', error_note: reason })
+    .eq('id', id);
+
+  if (error) {
+    // Column likely doesn't exist — retry without error_note
+    await supabase
+      .from('whatsapp_logs')
+      .update({ status: 'failed' })
+      .eq('id', id);
+  }
+}
+
 async function processMessages(): Promise<void> {
   const { data: pending, error } = await supabase
     .from('whatsapp_logs')
@@ -23,10 +39,7 @@ async function processMessages(): Promise<void> {
 
   for (const log of pending) {
     if (!log.phone?.trim() || !log.gym_id) {
-      await supabase
-        .from('whatsapp_logs')
-        .update({ status: 'failed' })
-        .eq('id', log.id);
+      await markFailed(log.id, 'Missing phone or gym_id');
       continue;
     }
 
@@ -38,11 +51,9 @@ async function processMessages(): Promise<void> {
         .eq('id', log.id);
       logger.info({ logId: log.id, phone: log.phone }, 'WhatsApp message sent');
     } catch (err: any) {
-      await supabase
-        .from('whatsapp_logs')
-        .update({ status: 'failed' })
-        .eq('id', log.id);
-      logger.warn({ logId: log.id, gymId: log.gym_id, err: err.message }, 'WhatsApp send failed');
+      const reason = err?.message ?? 'Unknown error';
+      await markFailed(log.id, reason);
+      logger.warn({ logId: log.id, gymId: log.gym_id, reason }, 'WhatsApp send failed');
     }
   }
 }

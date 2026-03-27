@@ -22,6 +22,7 @@ import { ScreenHeader } from '@/components/ScreenHeader';
 import { ConfirmModal } from '@/components/ConfirmModal';
 import { Colors } from '@/constants/colors';
 import * as Haptics from 'expo-haptics';
+import { supabase } from '@/lib/supabase';
 
 export default function MoreScreen() {
   const { user, logout } = useAuth();
@@ -893,6 +894,23 @@ const API_BASE = `https://${process.env.EXPO_PUBLIC_DOMAIN}/api`;
 
 type GymConnStatus = { status: string; phone: string | null; hasQr: boolean };
 
+async function getAuthToken(): Promise<string | null> {
+  const { data: { session } } = await supabase.auth.getSession();
+  return session?.access_token ?? null;
+}
+
+async function waFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  const token = await getAuthToken();
+  return fetch(url, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+      ...options.headers,
+    },
+  });
+}
+
 function WhatsAppSection({ onClose }: { onClose: () => void }) {
   const insets = useSafeAreaInsets();
   const { data: gyms = [] } = useGyms();
@@ -925,7 +943,7 @@ function WhatsAppSection({ onClose }: { onClose: () => void }) {
     await Promise.all(
       gyms.map(async (gym: any) => {
         try {
-          const res = await fetch(`${API_BASE}/whatsapp/status/${gym.id}`);
+          const res = await waFetch(`${API_BASE}/whatsapp/status/${gym.id}`);
           if (res.ok) results[gym.id] = await res.json();
         } catch {}
       })
@@ -937,17 +955,22 @@ function WhatsAppSection({ onClose }: { onClose: () => void }) {
     if (tab === 'setup') fetchAllStatuses();
   }, [tab, fetchAllStatuses]);
 
-  // Poll the selected gym's status while QR is showing or connecting
+  // Poll the selected gym status every 3s.
+  // The status endpoint also returns the latest QR base64 — so when Baileys
+  // regenerates a new QR (~every 60s), the displayed image updates automatically.
   useEffect(() => {
     if (!selectedGymId) return;
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`${API_BASE}/whatsapp/status/${selectedGymId}`);
+        const res = await waFetch(`${API_BASE}/whatsapp/status/${selectedGymId}`);
         if (!res.ok) return;
-        const data: GymConnStatus = await res.json();
+        const data: GymConnStatus & { qr?: string | null } = await res.json();
         setGymStatuses(prev => ({ ...prev, [selectedGymId]: data }));
         if (data.status === 'connected') {
           setQrData(null);
+        } else if (data.qr) {
+          // Fresh QR from Baileys — update displayed image
+          setQrData(data.qr);
         }
       } catch {}
     }, 3000);
@@ -960,7 +983,7 @@ function WhatsAppSection({ onClose }: { onClose: () => void }) {
     setQrLoading(true);
     setQrError('');
     try {
-      const res = await fetch(`${API_BASE}/whatsapp/qr/${gymId}`);
+      const res = await waFetch(`${API_BASE}/whatsapp/qr/${gymId}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to get QR code');
       if (data.status === 'connected') {
@@ -977,7 +1000,7 @@ function WhatsAppSection({ onClose }: { onClose: () => void }) {
 
   const handleDisconnect = async (gymId: string) => {
     try {
-      await fetch(`${API_BASE}/whatsapp/disconnect/${gymId}`, { method: 'DELETE' });
+      await waFetch(`${API_BASE}/whatsapp/disconnect/${gymId}`, { method: 'DELETE' });
       setGymStatuses(prev => ({ ...prev, [gymId]: { status: 'disconnected', phone: null, hasQr: false } }));
       if (selectedGymId === gymId) { setSelectedGymId(null); setQrData(null); }
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
