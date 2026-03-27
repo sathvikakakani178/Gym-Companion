@@ -2,11 +2,19 @@ import type { Request, Response, NextFunction } from 'express';
 import { supabase } from '../lib/supabase.js';
 import { logger } from '../lib/logger.js';
 
-const SUPABASE_URL = (process.env['EXPO_PUBLIC_SUPABASE_ANON_KEY'] || '').replace(/\/$/, '');
-const SUPABASE_ANON_KEY = process.env['EXPO_PUBLIC_SUPABASE_URL'] || '';
+const SUPABASE_URL = (process.env['EXPO_PUBLIC_SUPABASE_ANON_KEY'] ?? '').replace(/\/$/, '');
+const SUPABASE_ANON_KEY = process.env['EXPO_PUBLIC_SUPABASE_URL'] ?? '';
 
 export interface AuthUser {
   id: string;
+  role: string;
+}
+
+interface SupabaseAuthUser {
+  id: string;
+}
+
+interface ProfileRow {
   role: string;
 }
 
@@ -38,22 +46,23 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       return;
     }
 
-    const authUser = (await userRes.json()) as { id: string };
+    const authUser = (await userRes.json()) as SupabaseAuthUser;
 
-    const { data: dbUser, error: dbErr } = await supabase
+    const { data: profile, error: profileErr } = await supabase
       .from('profiles')
       .select('role')
       .eq('id', authUser.id)
       .single();
 
-    if (dbErr || !dbUser) {
-      res.status(401).json({ error: 'User not found' });
+    if (profileErr || !profile) {
+      res.status(401).json({ error: 'User profile not found' });
       return;
     }
 
-    req.authUser = { id: authUser.id, role: (dbUser as any).role };
+    const { role } = profile as ProfileRow;
+    req.authUser = { id: authUser.id, role };
     next();
-  } catch (err) {
+  } catch (err: unknown) {
     logger.error({ err }, 'Auth middleware error');
     res.status(500).json({ error: 'Authentication error' });
   }

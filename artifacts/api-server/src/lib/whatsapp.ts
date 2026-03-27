@@ -10,11 +10,19 @@ import path from 'node:path';
 import pino from 'pino';
 import { logger } from './logger.js';
 
-export const SESSIONS_DIR = '/tmp/gymleads-whatsapp';
+// Persist sessions in the workspace directory so they survive restarts/redeploys.
+// The sessions directory is gitignored (.local/whatsapp-sessions/).
+export const SESSIONS_DIR =
+  process.env['WHATSAPP_SESSIONS_DIR'] ??
+  path.join(process.cwd(), '.local', 'whatsapp-sessions');
 
 const silentLogger = pino({ level: 'silent' }) as unknown as ILogger;
 
 export type SessionStatus = 'disconnected' | 'connecting' | 'connected';
+
+interface BailDisconnectError {
+  output?: { statusCode?: number };
+}
 
 interface Session {
   sock: ReturnType<typeof makeWASocket> | null;
@@ -66,8 +74,8 @@ async function createSession(gymId: string): Promise<Session> {
         session.status = 'connecting';
         try {
           session.qrBase64 = await QRCode.toDataURL(qr);
-        } catch (e) {
-          logger.error({ gymId, e }, 'QR encode error');
+        } catch (e: unknown) {
+          logger.error({ gymId, err: e }, 'QR encode error');
         }
         logger.info({ gymId }, 'WhatsApp QR ready');
       }
@@ -80,7 +88,8 @@ async function createSession(gymId: string): Promise<Session> {
       }
 
       if (connection === 'close') {
-        const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
+        const bailErr = lastDisconnect?.error as BailDisconnectError | undefined;
+        const statusCode = bailErr?.output?.statusCode;
         const loggedOut = statusCode === DisconnectReason.loggedOut;
         session.status = 'disconnected';
         session.sock = null;
@@ -95,7 +104,7 @@ async function createSession(gymId: string): Promise<Session> {
     });
 
     sock.ev.on('creds.update', saveCreds);
-  } catch (err) {
+  } catch (err: unknown) {
     logger.error({ gymId, err }, 'Failed to init WhatsApp session');
     session.status = 'disconnected';
   }
@@ -137,6 +146,7 @@ export async function disconnectSession(gymId: string): Promise<void> {
     try {
       await s.sock.logout();
     } catch {
+      // logout can fail if already disconnected
     }
   }
   sessions.delete(gymId);
@@ -144,7 +154,7 @@ export async function disconnectSession(gymId: string): Promise<void> {
 
 /**
  * Rehydrate sessions for gyms that have saved auth state on disk.
- * Called once at startup so delivery resumes without requiring a new QR scan.
+ * Baileys auto-reconnects using saved credentials — no new QR scan needed.
  */
 export async function rehydrateSessionsFromDisk(): Promise<void> {
   if (!existsSync(SESSIONS_DIR)) return;
@@ -156,18 +166,8 @@ export async function rehydrateSessionsFromDisk(): Promise<void> {
   for (const gymId of gymIds) {
     try {
       await getOrCreateSession(gymId);
-    } catch (err) {
+    } catch (err: unknown) {
       logger.error({ gymId, err }, 'Failed to rehydrate WhatsApp session');
-    }
-  }
-}
-
-export async function initExistingSessions(gymIds: string[]): Promise<void> {
-  for (const gymId of gymIds) {
-    try {
-      await getOrCreateSession(gymId);
-    } catch (err) {
-      logger.error({ gymId, err }, 'Failed to init WhatsApp session');
     }
   }
 }

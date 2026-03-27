@@ -4,14 +4,27 @@ import { logger } from './logger.js';
 
 let processorInterval: NodeJS.Timeout | null = null;
 
+interface WhatsAppLog {
+  id: string;
+  gym_id: string;
+  phone: string | null;
+  message: string;
+  status: string;
+}
+
+interface Member {
+  id: string;
+  phone: string | null;
+}
+
 async function markFailed(id: string, reason: string): Promise<void> {
-  // Try with error_note column first; fall back gracefully if the column doesn't exist yet
   const { error } = await supabase
     .from('whatsapp_logs')
     .update({ status: 'failed', error_note: reason })
     .eq('id', id);
 
   if (error) {
+    // error_note column may not exist yet — fall back without it
     await supabase
       .from('whatsapp_logs')
       .update({ status: 'failed' })
@@ -19,9 +32,50 @@ async function markFailed(id: string, reason: string): Promise<void> {
   }
 }
 
+/**
+ * Fan-out broadcast: deliver message to all members of the gym who have a phone number.
+ * Throws if no members are found or all sends fail.
+ */
+async function sendBroadcast(log: WhatsAppLog): Promise<void> {
+  const { data: members, error } = await supabase
+    .from('members')
+    .select('id, phone')
+    .eq('gym_id', log.gym_id)
+    .not('phone', 'is', null);
+
+  if (error) {
+    throw new Error(`Failed to fetch members: ${error.message}`);
+  }
+
+  const eligible = (members ?? []) as Member[];
+  if (eligible.length === 0) {
+    throw new Error('No members with phone numbers in this gym');
+  }
+
+  let sent = 0;
+  let failed = 0;
+
+  for (const member of eligible) {
+    const phone = member.phone?.trim();
+    if (!phone) continue;
+    try {
+      await sendWhatsAppMessage(log.gym_id, phone, log.message);
+      sent++;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Send failed';
+      logger.warn({ logId: log.id, memberId: member.id, reason: msg }, 'Broadcast: recipient failed');
+      failed++;
+    }
+  }
+
+  logger.info({ logId: log.id, gymId: log.gym_id, sent, failed }, 'Broadcast complete');
+
+  if (sent === 0) {
+    throw new Error(`Broadcast: all ${failed} recipient(s) failed to receive message`);
+  }
+}
+
 async function processMessages(): Promise<void> {
-  // Fetch ALL pending rows, including those without a phone number.
-  // Rows without a phone will be marked failed immediately (can't determine recipient).
   const { data: pending, error } = await supabase
     .from('whatsapp_logs')
     .select('*')
@@ -37,18 +91,31 @@ async function processMessages(): Promise<void> {
 
   logger.info({ count: pending.length }, 'Processing pending WhatsApp messages');
 
-  for (const log of pending) {
-    // Validate required fields before attempting send
+  for (const raw of pending) {
+    const log = raw as WhatsAppLog;
+
     if (!log.gym_id) {
       await markFailed(log.id, 'Missing gym_id');
       continue;
     }
+
     if (!log.phone?.trim()) {
-      await markFailed(log.id, 'No phone number — broadcast-to-all not yet supported via direct delivery');
-      logger.info({ logId: log.id }, 'Marked no-phone log as failed');
+      // Broadcast: fan-out to all gym members with phone numbers
+      try {
+        await sendBroadcast(log);
+        await supabase
+          .from('whatsapp_logs')
+          .update({ status: 'sent' })
+          .eq('id', log.id);
+      } catch (err: unknown) {
+        const reason = err instanceof Error ? err.message : 'Broadcast failed';
+        await markFailed(log.id, reason);
+        logger.warn({ logId: log.id, reason }, 'Broadcast failed');
+      }
       continue;
     }
 
+    // Single-recipient message
     try {
       await sendWhatsAppMessage(log.gym_id, log.phone, log.message);
       await supabase
@@ -56,8 +123,8 @@ async function processMessages(): Promise<void> {
         .update({ status: 'sent' })
         .eq('id', log.id);
       logger.info({ logId: log.id, phone: log.phone }, 'WhatsApp message sent');
-    } catch (err: any) {
-      const reason = err?.message ?? 'Unknown error';
+    } catch (err: unknown) {
+      const reason = err instanceof Error ? err.message : 'Unknown error';
       await markFailed(log.id, reason);
       logger.warn({ logId: log.id, gymId: log.gym_id, reason }, 'WhatsApp send failed');
     }
