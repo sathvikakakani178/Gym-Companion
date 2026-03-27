@@ -52,17 +52,28 @@ router.get('/whatsapp/status/:gymId', ...adminOnly, (req, res) => {
   return res.json({ status, phone, hasQr: !!qrBase64, qr: qrBase64 });
 });
 
+interface SendPayload {
+  gymId?: unknown;
+  phone?: unknown;
+  message?: unknown;
+}
+
 // POST /api/whatsapp/send — direct send (bypasses queue, for admin testing)
 router.post('/whatsapp/send', ...adminOnly, async (req, res) => {
-  const { gymId, phone, message } = req.body as { gymId?: string; phone?: string; message?: string };
-  if (!gymId || !phone || !message) {
-    return res.status(400).json({ error: 'gymId, phone, and message are required' });
+  const { gymId, phone, message } = (req.body ?? {}) as SendPayload;
+  const missing: string[] = [];
+  if (typeof gymId !== 'string' || !gymId.trim()) missing.push('gymId');
+  if (typeof phone !== 'string' || !phone.trim()) missing.push('phone');
+  if (typeof message !== 'string' || !message.trim()) missing.push('message');
+  if (missing.length > 0) {
+    return res.status(400).json({ error: `Missing or invalid fields: ${missing.join(', ')}` });
   }
   try {
-    await sendWhatsAppMessage(gymId, phone, message);
+    await sendWhatsAppMessage(gymId as string, phone as string, message as string);
     return res.json({ success: true });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Send failed';
+    return res.status(500).json({ error: msg });
   }
 });
 

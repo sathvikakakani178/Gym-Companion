@@ -98,7 +98,18 @@ async function createSession(gymId: string): Promise<Session> {
         if (!loggedOut) {
           session.reconnectTimer = setTimeout(() => createSession(gymId), 8000);
         } else {
+          // Logged out — remove in-memory session and persisted auth files so a
+          // fresh QR scan is always required on the next setup attempt.
           sessions.delete(gymId);
+          const sessDir = getSessionDir(gymId);
+          if (existsSync(sessDir)) {
+            try {
+              rmSync(sessDir, { recursive: true, force: true });
+              logger.info({ gymId }, 'WhatsApp auth files removed after logout');
+            } catch (err: unknown) {
+              logger.warn({ gymId, err }, 'Failed to remove auth files after logout');
+            }
+          }
         }
       }
     });
