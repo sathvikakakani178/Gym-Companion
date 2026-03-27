@@ -32,7 +32,11 @@ if (!_supabaseKey.startsWith('eyJ')) {
 if (process.env['SUPABASE_SERVICE_ROLE_KEY']) {
   logger.info('Supabase service role key present — backend queries bypass RLS');
 } else {
-  logger.info('No SUPABASE_SERVICE_ROLE_KEY — backend queries use anon key (requires permissive RLS)');
+  logger.warn(
+    'SUPABASE_SERVICE_ROLE_KEY is not set — the message processor and admin routes will use the anon key. ' +
+    'This requires permissive RLS policies on whatsapp_logs and members tables. ' +
+    'Set this key in production to ensure reliable query access.',
+  );
 }
 
 app.listen(port, (err) => {
