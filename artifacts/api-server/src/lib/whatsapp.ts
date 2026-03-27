@@ -5,7 +5,7 @@ import makeWASocket, {
 } from '@whiskeysockets/baileys';
 import type { ILogger } from '@whiskeysockets/baileys/lib/Utils/logger.js';
 import * as QRCode from 'qrcode';
-import { mkdirSync, existsSync, readdirSync } from 'node:fs';
+import { mkdirSync, existsSync, readdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import pino from 'pino';
 import { logger } from './logger.js';
@@ -172,6 +172,18 @@ export async function disconnectSession(gymId: string): Promise<void> {
     }
   }
   sessions.delete(gymId);
+
+  // Remove persisted auth so a fresh QR scan is required on next setup.
+  // This prevents a "stale creds" state where the old session can't reconnect.
+  const sessDir = getSessionDir(gymId);
+  if (existsSync(sessDir)) {
+    try {
+      rmSync(sessDir, { recursive: true, force: true });
+      logger.info({ gymId }, 'WhatsApp session auth files removed');
+    } catch (err: unknown) {
+      logger.warn({ gymId, err }, 'Failed to remove WhatsApp session auth files');
+    }
+  }
 }
 
 /**
