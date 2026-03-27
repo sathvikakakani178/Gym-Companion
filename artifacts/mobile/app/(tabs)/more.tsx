@@ -999,6 +999,8 @@ function WhatsAppSection({ onClose }: { onClose: () => void }) {
 
   // Poll ALL non-connected gyms every 3s. The status endpoint returns fresh QR
   // base64 so displayed images update automatically when Baileys regenerates them.
+  // If a gym unexpectedly transitions to 'disconnected' during polling, a new
+  // session is auto-initiated so the QR reappears without a tab switch.
   useEffect(() => {
     if (tab !== 'setup') return;
     const interval = setInterval(async () => {
@@ -1010,17 +1012,29 @@ function WhatsAppSection({ onClose }: { onClose: () => void }) {
           const res = await waFetch(`${API_BASE}/whatsapp/status/${gymId}`);
           if (!res.ok) continue;
           const data: GymConnStatus & { qr?: string | null } = await res.json();
+          const prevStatus = gymStatuses[gymId]?.status;
           setGymStatuses(prev => ({ ...prev, [gymId]: data }));
           if (data.status === 'connected') {
             setGymQrData(prev => ({ ...prev, [gymId]: null }));
           } else if (data.qr) {
             setGymQrData(prev => ({ ...prev, [gymId]: data.qr ?? null }));
+          } else if (data.status === 'disconnected' && prevStatus !== 'disconnected' && !gymQrLoading[gymId]) {
+            // Unexpected drop — restart session so QR reappears automatically
+            setGymQrLoading(prev => ({ ...prev, [gymId]: true }));
+            setGymQrData(prev => ({ ...prev, [gymId]: null }));
+            waFetch(`${API_BASE}/whatsapp/qr/${gymId}`)
+              .then(async r => {
+                const d = await r.json();
+                if (d.qr) setGymQrData(prev => ({ ...prev, [gymId]: d.qr }));
+              })
+              .catch(() => {})
+              .finally(() => setGymQrLoading(prev => ({ ...prev, [gymId]: false })));
           }
         } catch {}
       }
     }, 3000);
     return () => clearInterval(interval);
-  }, [tab, gyms, gymStatuses]);
+  }, [tab, gyms, gymStatuses, gymQrLoading]);
 
   const handleDisconnect = async (gymId: string) => {
     try {
