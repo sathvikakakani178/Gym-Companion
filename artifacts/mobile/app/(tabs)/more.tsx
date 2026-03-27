@@ -921,10 +921,10 @@ function WhatsAppSection({ onClose }: { onClose: () => void }) {
 
   // ── Setup tab state ────────────────────────────────────────────────
   const [gymStatuses, setGymStatuses] = useState<Record<string, GymConnStatus>>({});
-  const [selectedGymId, setSelectedGymId] = useState<string | null>(null);
-  const [qrData, setQrData] = useState<string | null>(null);
-  const [qrLoading, setQrLoading] = useState(false);
-  const [qrError, setQrError] = useState('');
+  // Per-gym QR data so multiple disconnected gyms show their QR simultaneously
+  const [gymQrData, setGymQrData] = useState<Record<string, string | null>>({});
+  const [gymQrLoading, setGymQrLoading] = useState<Record<string, boolean>>({});
+  const [gymQrError, setGymQrError] = useState<Record<string, string>>({});
 
   // ── Broadcast tab state ────────────────────────────────────────────
   const [broadcastGymId, setBroadcastGymId] = useState('');
@@ -937,6 +937,7 @@ function WhatsAppSection({ onClose }: { onClose: () => void }) {
   const [filterGym, setFilterGym] = useState('');
   const filteredLogs = filterGym ? logs.filter((l: any) => l.gym_id === filterGym) : logs;
 
+  // Fetch status for all gyms and store results in gymStatuses
   const fetchAllStatuses = useCallback(async () => {
     if (gyms.length === 0) return;
     const results: Record<string, GymConnStatus> = {};
@@ -944,65 +945,88 @@ function WhatsAppSection({ onClose }: { onClose: () => void }) {
       gyms.map(async (gym: any) => {
         try {
           const res = await waFetch(`${API_BASE}/whatsapp/status/${gym.id}`);
-          if (res.ok) results[gym.id] = await res.json();
+          if (res.ok) {
+            const data: GymConnStatus & { qr?: string | null } = await res.json();
+            results[gym.id] = data;
+            if (data.qr) setGymQrData(prev => ({ ...prev, [gym.id]: data.qr ?? null }));
+          }
         } catch {}
       })
     );
     setGymStatuses(prev => ({ ...prev, ...results }));
   }, [gyms]);
 
-  useEffect(() => {
-    if (tab === 'setup') fetchAllStatuses();
-  }, [tab, fetchAllStatuses]);
+  // Auto-start sessions for all disconnected gyms when Setup tab is opened,
+  // so QR codes appear automatically without requiring a "Scan QR" tap.
+  const initDisconnectedGyms = useCallback(async () => {
+    const disconnected = gyms.filter((g: any) => {
+      const s = gymStatuses[g.id];
+      return !s || s.status === 'disconnected';
+    });
+    for (const gym of disconnected) {
+      if (gymQrLoading[gym.id]) continue;
+      setGymQrLoading(prev => ({ ...prev, [gym.id]: true }));
+      setGymQrError(prev => ({ ...prev, [gym.id]: '' }));
+      // Fire in background — status poll will surface the QR within 3s
+      waFetch(`${API_BASE}/whatsapp/qr/${gym.id}`)
+        .then(async res => {
+          const data = await res.json();
+          if (!res.ok) {
+            setGymQrError(prev => ({ ...prev, [gym.id]: data.error ?? 'Failed to get QR' }));
+            return;
+          }
+          if (data.status === 'connected') {
+            setGymStatuses(prev => ({ ...prev, [gym.id]: { status: 'connected', phone: data.phone, hasQr: false } }));
+          } else if (data.qr) {
+            setGymQrData(prev => ({ ...prev, [gym.id]: data.qr }));
+            setGymStatuses(prev => ({ ...prev, [gym.id]: { ...(prev[gym.id] ?? {}), status: 'connecting', hasQr: true } }));
+          }
+        })
+        .catch(() => {
+          setGymQrError(prev => ({ ...prev, [gym.id]: 'Could not initialize session' }));
+        })
+        .finally(() => {
+          setGymQrLoading(prev => ({ ...prev, [gym.id]: false }));
+        });
+    }
+  }, [gyms, gymStatuses, gymQrLoading]);
 
-  // Poll the selected gym status every 3s.
-  // The status endpoint also returns the latest QR base64 — so when Baileys
-  // regenerates a new QR (~every 60s), the displayed image updates automatically.
   useEffect(() => {
-    if (!selectedGymId) return;
+    if (tab === 'setup') {
+      fetchAllStatuses().then(() => initDisconnectedGyms());
+    }
+  }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Poll ALL non-connected gyms every 3s. The status endpoint returns fresh QR
+  // base64 so displayed images update automatically when Baileys regenerates them.
+  useEffect(() => {
+    if (tab !== 'setup') return;
     const interval = setInterval(async () => {
-      try {
-        const res = await waFetch(`${API_BASE}/whatsapp/status/${selectedGymId}`);
-        if (!res.ok) return;
-        const data: GymConnStatus & { qr?: string | null } = await res.json();
-        setGymStatuses(prev => ({ ...prev, [selectedGymId]: data }));
-        if (data.status === 'connected') {
-          setQrData(null);
-        } else if (data.qr) {
-          // Fresh QR from Baileys — update displayed image
-          setQrData(data.qr);
-        }
-      } catch {}
+      const nonConnectedIds = gyms
+        .filter((g: any) => gymStatuses[g.id]?.status !== 'connected')
+        .map((g: any) => g.id as string);
+      for (const gymId of nonConnectedIds) {
+        try {
+          const res = await waFetch(`${API_BASE}/whatsapp/status/${gymId}`);
+          if (!res.ok) continue;
+          const data: GymConnStatus & { qr?: string | null } = await res.json();
+          setGymStatuses(prev => ({ ...prev, [gymId]: data }));
+          if (data.status === 'connected') {
+            setGymQrData(prev => ({ ...prev, [gymId]: null }));
+          } else if (data.qr) {
+            setGymQrData(prev => ({ ...prev, [gymId]: data.qr ?? null }));
+          }
+        } catch {}
+      }
     }, 3000);
     return () => clearInterval(interval);
-  }, [selectedGymId]);
-
-  const handleSetupGym = async (gymId: string) => {
-    setSelectedGymId(gymId);
-    setQrData(null);
-    setQrLoading(true);
-    setQrError('');
-    try {
-      const res = await waFetch(`${API_BASE}/whatsapp/qr/${gymId}`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to get QR code');
-      if (data.status === 'connected') {
-        setGymStatuses(prev => ({ ...prev, [gymId]: { status: 'connected', phone: data.phone, hasQr: false } }));
-      } else {
-        setQrData(data.qr ?? null);
-      }
-    } catch (err: any) {
-      setQrError(err.message || 'Could not load QR code');
-    } finally {
-      setQrLoading(false);
-    }
-  };
+  }, [tab, gyms, gymStatuses]);
 
   const handleDisconnect = async (gymId: string) => {
     try {
       await waFetch(`${API_BASE}/whatsapp/disconnect/${gymId}`, { method: 'DELETE' });
       setGymStatuses(prev => ({ ...prev, [gymId]: { status: 'disconnected', phone: null, hasQr: false } }));
-      if (selectedGymId === gymId) { setSelectedGymId(null); setQrData(null); }
+      setGymQrData(prev => ({ ...prev, [gymId]: null }));
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch {}
   };
@@ -1059,8 +1083,10 @@ function WhatsAppSection({ onClose }: { onClose: () => void }) {
 
           {gyms.map((gym: any) => {
             const s = gymStatuses[gym.id];
-            const isSelected = selectedGymId === gym.id;
             const connStatus = s?.status ?? 'disconnected';
+            const gymQr = gymQrData[gym.id];
+            const gymLoading = !!gymQrLoading[gym.id];
+            const gymErr = gymQrError[gym.id] ?? '';
 
             return (
               <View key={gym.id} style={section.card}>
@@ -1074,65 +1100,44 @@ function WhatsAppSection({ onClose }: { onClose: () => void }) {
                   <Text style={[section.sub, { marginTop: 4 }]}>+{s.phone}</Text>
                 )}
 
-                <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
-                  {connStatus !== 'connected' && (
-                    <Pressable
-                      style={{ flex: 1, height: 34, borderRadius: 8, alignItems: 'center', justifyContent: 'center',
-                        backgroundColor: isSelected ? '#25D36633' : Colors.secondary,
-                        borderWidth: 1, borderColor: isSelected ? '#25D366' : Colors.border }}
-                      onPress={() => isSelected ? setSelectedGymId(null) : handleSetupGym(gym.id)}
-                    >
-                      <Text style={{ fontFamily: 'Inter_600SemiBold', fontSize: 12, color: isSelected ? '#25D366' : Colors.textSecondary }}>
-                        {isSelected ? 'Cancel' : 'Scan QR'}
-                      </Text>
-                    </Pressable>
-                  )}
-                  {connStatus === 'connected' && (
-                    <Pressable
-                      style={{ flex: 1, height: 34, borderRadius: 8, alignItems: 'center', justifyContent: 'center',
-                        backgroundColor: Colors.secondary, borderWidth: 1, borderColor: Colors.danger + '66' }}
-                      onPress={() => handleDisconnect(gym.id)}
-                    >
-                      <Text style={{ fontFamily: 'Inter_600SemiBold', fontSize: 12, color: Colors.danger }}>Disconnect</Text>
-                    </Pressable>
-                  )}
-                  {connStatus !== 'connected' && (
-                    <Pressable
-                      style={{ height: 34, paddingHorizontal: 12, borderRadius: 8, alignItems: 'center', justifyContent: 'center',
-                        backgroundColor: Colors.secondary, borderWidth: 1, borderColor: Colors.border }}
-                      onPress={() => fetchAllStatuses()}
-                    >
-                      <Ionicons name="refresh-outline" size={16} color={Colors.textSecondary} />
-                    </Pressable>
-                  )}
-                </View>
+                {connStatus === 'connected' && (
+                  <Pressable
+                    style={{ marginTop: 10, height: 34, borderRadius: 8, alignItems: 'center', justifyContent: 'center',
+                      backgroundColor: Colors.secondary, borderWidth: 1, borderColor: Colors.danger + '66' }}
+                    onPress={() => handleDisconnect(gym.id)}
+                  >
+                    <Text style={{ fontFamily: 'Inter_600SemiBold', fontSize: 12, color: Colors.danger }}>Disconnect</Text>
+                  </Pressable>
+                )}
 
-                {isSelected && (
+                {connStatus !== 'connected' && (
                   <View style={{ marginTop: 12, alignItems: 'center', gap: 8 }}>
-                    {qrLoading && <ActivityIndicator color="#25D366" style={{ marginVertical: 20 }} />}
-                    {!!qrError && (
+                    {gymLoading && <ActivityIndicator color="#25D366" style={{ marginVertical: 20 }} />}
+                    {!!gymErr && (
                       <View style={section.errorBox}>
                         <Ionicons name="alert-circle-outline" size={13} color={Colors.danger} />
-                        <Text style={section.errorText}>{qrError}</Text>
+                        <Text style={section.errorText}>{gymErr}</Text>
                       </View>
                     )}
-                    {!qrLoading && qrData && (
+                    {!gymLoading && gymQr && (
                       <View style={{ alignItems: 'center', gap: 6 }}>
                         <Text style={{ fontFamily: 'Inter_500Medium', fontSize: 12, color: Colors.textSecondary }}>
                           Open WhatsApp → Linked Devices → Scan
                         </Text>
                         <View style={{ borderRadius: 12, overflow: 'hidden', borderWidth: 3, borderColor: '#25D366' }}>
-                          <Image source={{ uri: qrData }} style={{ width: 220, height: 220 }} resizeMode="contain" />
+                          <Image source={{ uri: gymQr }} style={{ width: 220, height: 220 }} resizeMode="contain" />
                         </View>
                         <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 11, color: Colors.textMuted }}>
-                          QR expires in ~60 seconds
+                          QR auto-refreshes every ~60 seconds
                         </Text>
                       </View>
                     )}
-                    {!qrLoading && !qrData && !qrError && connStatus === 'connecting' && (
+                    {!gymLoading && !gymQr && !gymErr && (
                       <View style={{ alignItems: 'center', paddingVertical: 10, gap: 6 }}>
                         <ActivityIndicator color="#25D366" />
-                        <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 12, color: Colors.textSecondary }}>Waiting for QR...</Text>
+                        <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 12, color: Colors.textSecondary }}>
+                          {connStatus === 'connecting' ? 'Waiting for QR...' : 'Initializing session...'}
+                        </Text>
                       </View>
                     )}
                   </View>

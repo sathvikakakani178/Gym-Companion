@@ -14,7 +14,7 @@ const adminOnly = [requireAuth, requireRole('super_admin')];
 
 // GET /api/whatsapp/qr/:gymId
 // Starts (or resumes) a Baileys session and returns the current QR code (if pending)
-// or connected status. Only super_admin may call this.
+// or connected status. Polls up to 12s for QR to appear. Only super_admin may call this.
 router.get('/whatsapp/qr/:gymId', ...adminOnly, async (req, res) => {
   const gymId = String(req.params['gymId']);
   try {
@@ -30,15 +30,16 @@ router.get('/whatsapp/qr/:gymId', ...adminOnly, async (req, res) => {
       if (s.qrBase64) {
         return res.json({ status: 'connecting', qr: s.qrBase64, phone: null });
       }
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise<void>(r => setTimeout(r, 500));
       attempts++;
     }
 
     const s = getSessionStatus(gymId);
     return res.json({ status: s.status, qr: s.qrBase64, phone: s.phone });
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Internal error';
     logger.error({ gymId, err }, 'Error getting WhatsApp QR');
-    return res.status(500).json({ error: err.message ?? 'Internal error' });
+    return res.status(500).json({ error: msg });
   }
 });
 
@@ -83,8 +84,9 @@ router.delete('/whatsapp/disconnect/:gymId', ...adminOnly, async (req, res) => {
   try {
     await disconnectSession(gymId);
     return res.json({ success: true });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Disconnect failed';
+    return res.status(500).json({ error: msg });
   }
 });
 
