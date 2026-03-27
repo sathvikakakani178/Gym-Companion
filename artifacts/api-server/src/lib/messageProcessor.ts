@@ -110,10 +110,18 @@ async function processMessages(): Promise<void> {
         // Broadcast: fan-out to all gym members with phone numbers
         try {
           await sendBroadcast(log);
-          await supabase
+          const { error: updateErr } = await supabase
             .from('whatsapp_logs')
             .update({ status: 'sent' })
             .eq('id', log.id);
+          if (updateErr) {
+            // Message was delivered but status update failed — log explicitly to
+            // prevent silent duplicate resend on next cycle.
+            logger.error({ logId: log.id, dbErr: updateErr.message },
+              'Broadcast sent but status update failed — manual reconciliation required');
+          } else {
+            logger.info({ logId: log.id }, 'Broadcast delivered and marked sent');
+          }
         } catch (err: unknown) {
           const reason = err instanceof Error ? err.message : 'Broadcast failed';
           await markFailed(log.id, reason);
@@ -125,11 +133,18 @@ async function processMessages(): Promise<void> {
       // Single-recipient message
       try {
         await sendWhatsAppMessage(log.gym_id, log.phone, log.message);
-        await supabase
+        const { error: updateErr } = await supabase
           .from('whatsapp_logs')
           .update({ status: 'sent' })
           .eq('id', log.id);
-        logger.info({ logId: log.id, phone: log.phone }, 'WhatsApp message sent');
+        if (updateErr) {
+          // Message was delivered but we couldn't mark it sent — log so operators
+          // can reconcile before the next cycle re-processes this row.
+          logger.error({ logId: log.id, phone: log.phone, dbErr: updateErr.message },
+            'Message sent but status update failed — manual reconciliation required');
+        } else {
+          logger.info({ logId: log.id, phone: log.phone }, 'WhatsApp message sent');
+        }
       } catch (err: unknown) {
         const reason = err instanceof Error ? err.message : 'Unknown error';
         await markFailed(log.id, reason);
