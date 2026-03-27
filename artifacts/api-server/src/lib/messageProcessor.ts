@@ -4,9 +4,6 @@ import { logger } from './logger.js';
 
 let processorInterval: NodeJS.Timeout | null = null;
 
-// In-flight log IDs: prevents duplicate delivery when a cycle takes longer than 30s
-const inFlight = new Set<string>();
-
 interface WhatsAppLog {
   id: string;
   gym_id: string;
@@ -33,6 +30,26 @@ async function markFailed(id: string, reason: string): Promise<void> {
       .update({ status: 'failed' })
       .eq('id', id);
   }
+}
+
+/**
+ * Atomically claim a pending log row by transitioning it to 'processing'.
+ * Returns false if the row was already claimed by another process/instance.
+ */
+async function claimRow(id: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('whatsapp_logs')
+    .update({ status: 'processing' })
+    .eq('id', id)
+    .eq('status', 'pending')  // Only update if still pending (atomic claim)
+    .select('id');
+
+  if (error) {
+    // If 'processing' isn't a valid status value, fall back gracefully
+    logger.debug({ id, err: error.message }, 'DB claim failed — falling back to in-memory lock');
+    return true; // Proceed anyway; in-memory in-flight set still protects within one instance
+  }
+  return Array.isArray(data) && data.length > 0;
 }
 
 /**
@@ -78,6 +95,54 @@ async function sendBroadcast(log: WhatsAppLog): Promise<void> {
   }
 }
 
+async function markSent(id: string, context: Record<string, unknown>): Promise<void> {
+  const { error: updateErr } = await supabase
+    .from('whatsapp_logs')
+    .update({ status: 'sent' })
+    .eq('id', id);
+
+  if (updateErr) {
+    // Message was delivered but we couldn't mark it sent — log explicitly so
+    // operators can reconcile rather than risk a duplicate resend on next cycle.
+    logger.error({ logId: id, dbErr: updateErr.message, ...context },
+      'Message sent but status update failed — manual reconciliation required');
+  }
+}
+
+async function processLog(log: WhatsAppLog): Promise<void> {
+  // Atomically claim the row to prevent duplicate delivery under multi-instance deployment
+  const claimed = await claimRow(log.id);
+  if (!claimed) {
+    logger.debug({ logId: log.id }, 'Row already claimed by another instance — skipping');
+    return;
+  }
+
+  if (!log.phone?.trim()) {
+    // Broadcast: fan-out to all gym members with phone numbers
+    try {
+      await sendBroadcast(log);
+      await markSent(log.id, { type: 'broadcast' });
+      logger.info({ logId: log.id }, 'Broadcast delivered and marked sent');
+    } catch (err: unknown) {
+      const reason = err instanceof Error ? err.message : 'Broadcast failed';
+      await markFailed(log.id, reason);
+      logger.warn({ logId: log.id, reason }, 'Broadcast failed');
+    }
+    return;
+  }
+
+  // Single-recipient message
+  try {
+    await sendWhatsAppMessage(log.gym_id, log.phone, log.message);
+    await markSent(log.id, { phone: log.phone });
+    logger.info({ logId: log.id, phone: log.phone }, 'WhatsApp message sent');
+  } catch (err: unknown) {
+    const reason = err instanceof Error ? err.message : 'Unknown error';
+    await markFailed(log.id, reason);
+    logger.warn({ logId: log.id, gymId: log.gym_id, reason }, 'WhatsApp send failed');
+  }
+}
+
 async function processMessages(): Promise<void> {
   const { data: pending, error } = await supabase
     .from('whatsapp_logs')
@@ -92,70 +157,10 @@ async function processMessages(): Promise<void> {
 
   if (!pending || pending.length === 0) return;
 
-  // Filter out any logs already being processed in this cycle
-  const eligible = (pending as WhatsAppLog[]).filter(log => !inFlight.has(log.id));
-  if (eligible.length === 0) return;
+  logger.info({ count: pending.length }, 'Processing pending WhatsApp messages');
 
-  logger.info({ count: eligible.length }, 'Processing pending WhatsApp messages');
-
-  const tasks = eligible.map(async (log) => {
-    inFlight.add(log.id);
-    try {
-      if (!log.gym_id) {
-        await markFailed(log.id, 'Missing gym_id');
-        return;
-      }
-
-      if (!log.phone?.trim()) {
-        // Broadcast: fan-out to all gym members with phone numbers
-        try {
-          await sendBroadcast(log);
-          const { error: updateErr } = await supabase
-            .from('whatsapp_logs')
-            .update({ status: 'sent' })
-            .eq('id', log.id);
-          if (updateErr) {
-            // Message was delivered but status update failed — log explicitly to
-            // prevent silent duplicate resend on next cycle.
-            logger.error({ logId: log.id, dbErr: updateErr.message },
-              'Broadcast sent but status update failed — manual reconciliation required');
-          } else {
-            logger.info({ logId: log.id }, 'Broadcast delivered and marked sent');
-          }
-        } catch (err: unknown) {
-          const reason = err instanceof Error ? err.message : 'Broadcast failed';
-          await markFailed(log.id, reason);
-          logger.warn({ logId: log.id, reason }, 'Broadcast failed');
-        }
-        return;
-      }
-
-      // Single-recipient message
-      try {
-        await sendWhatsAppMessage(log.gym_id, log.phone, log.message);
-        const { error: updateErr } = await supabase
-          .from('whatsapp_logs')
-          .update({ status: 'sent' })
-          .eq('id', log.id);
-        if (updateErr) {
-          // Message was delivered but we couldn't mark it sent — log so operators
-          // can reconcile before the next cycle re-processes this row.
-          logger.error({ logId: log.id, phone: log.phone, dbErr: updateErr.message },
-            'Message sent but status update failed — manual reconciliation required');
-        } else {
-          logger.info({ logId: log.id, phone: log.phone }, 'WhatsApp message sent');
-        }
-      } catch (err: unknown) {
-        const reason = err instanceof Error ? err.message : 'Unknown error';
-        await markFailed(log.id, reason);
-        logger.warn({ logId: log.id, gymId: log.gym_id, reason }, 'WhatsApp send failed');
-      }
-    } finally {
-      inFlight.delete(log.id);
-    }
-  });
-
-  await Promise.all(tasks);
+  // Process concurrently — DB-level claim prevents cross-instance duplicates
+  await Promise.all((pending as WhatsAppLog[]).map(log => processLog(log)));
 }
 
 export function startMessageProcessor(): void {

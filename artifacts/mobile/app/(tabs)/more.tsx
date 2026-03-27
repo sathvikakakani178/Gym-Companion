@@ -882,6 +882,7 @@ const WA_STATUS_MAP: Record<string, { label: string; color: string }> = {
   delivered: { label: 'Delivered', color: Colors.info },
   failed: { label: 'Failed', color: Colors.danger },
   pending: { label: 'Pending', color: Colors.warning },
+  processing: { label: 'Processing', color: Colors.info },
 };
 
 const WA_CONN_MAP: Record<string, { label: string; color: string }> = {
