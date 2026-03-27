@@ -47,12 +47,12 @@ app.listen(port, (err) => {
 
   logger.info({ port }, "Server listening");
 
-  startMessageProcessor();
-
-  // Rehydrate WhatsApp sessions for gyms that have saved auth state on disk.
-  // This ensures message delivery resumes after a restart without requiring
-  // gym owners to scan a new QR code.
-  rehydrateSessionsFromDisk().catch(err =>
-    logger.error({ err }, "Failed to rehydrate WhatsApp sessions"),
-  );
+  // Rehydrate saved WhatsApp sessions BEFORE starting the processor.
+  // This ensures sessions are reconnected first so that pending rows
+  // are not immediately marked failed due to "no active session" on cold restart.
+  rehydrateSessionsFromDisk()
+    .catch(err => logger.error({ err }, "Failed to rehydrate WhatsApp sessions"))
+    .finally(() => {
+      startMessageProcessor();
+    });
 });

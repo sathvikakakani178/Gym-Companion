@@ -1043,7 +1043,13 @@ function WhatsAppSection({ onClose }: { onClose: () => void }) {
 
   const handleDisconnect = async (gymId: string) => {
     try {
-      await waFetch(`${API_BASE}/whatsapp/disconnect/${gymId}`, { method: 'DELETE' });
+      const discRes = await waFetch(`${API_BASE}/whatsapp/disconnect/${gymId}`, { method: 'DELETE' });
+      if (!discRes.ok) {
+        const errData = await discRes.json().catch(() => ({}));
+        setGymQrError(prev => ({ ...prev, [gymId]: errData.error ?? 'Disconnect failed' }));
+        console.warn('[WA] Disconnect failed for gym', gymId, errData);
+        return;
+      }
       setGymStatuses(prev => ({ ...prev, [gymId]: { status: 'disconnected', phone: null, hasQr: false } }));
       setGymQrData(prev => ({ ...prev, [gymId]: null }));
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
