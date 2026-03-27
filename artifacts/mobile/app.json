@@ -37,6 +37,13 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "6c0be437-1156-4d56-b169-8e8a4f7431d8"
+      },
+      "supabaseUrl": "https://ukzqtxlckbwpmrvvekhc.supabase.co",
+      "supabaseKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlsZ3ZxYmRlYW9pY29ocGlueG5kIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQwNTU1MTUsImV4cCI6MjA4OTYzMTUxNX0.n4mgn31SZr4IIq3Vz6yfdbPGbaEZi48RlE6-4kV93xc"
     }
   }
 }
