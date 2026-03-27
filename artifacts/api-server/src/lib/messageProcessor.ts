@@ -4,6 +4,9 @@ import { logger } from './logger.js';
 
 let processorInterval: NodeJS.Timeout | null = null;
 
+// In-flight log IDs: prevents duplicate delivery when a cycle takes longer than 30s
+const inFlight = new Set<string>();
+
 interface WhatsAppLog {
   id: string;
   gym_id: string;
@@ -89,46 +92,55 @@ async function processMessages(): Promise<void> {
 
   if (!pending || pending.length === 0) return;
 
-  logger.info({ count: pending.length }, 'Processing pending WhatsApp messages');
+  // Filter out any logs already being processed in this cycle
+  const eligible = (pending as WhatsAppLog[]).filter(log => !inFlight.has(log.id));
+  if (eligible.length === 0) return;
 
-  for (const raw of pending) {
-    const log = raw as WhatsAppLog;
+  logger.info({ count: eligible.length }, 'Processing pending WhatsApp messages');
 
-    if (!log.gym_id) {
-      await markFailed(log.id, 'Missing gym_id');
-      continue;
-    }
+  const tasks = eligible.map(async (log) => {
+    inFlight.add(log.id);
+    try {
+      if (!log.gym_id) {
+        await markFailed(log.id, 'Missing gym_id');
+        return;
+      }
 
-    if (!log.phone?.trim()) {
-      // Broadcast: fan-out to all gym members with phone numbers
+      if (!log.phone?.trim()) {
+        // Broadcast: fan-out to all gym members with phone numbers
+        try {
+          await sendBroadcast(log);
+          await supabase
+            .from('whatsapp_logs')
+            .update({ status: 'sent' })
+            .eq('id', log.id);
+        } catch (err: unknown) {
+          const reason = err instanceof Error ? err.message : 'Broadcast failed';
+          await markFailed(log.id, reason);
+          logger.warn({ logId: log.id, reason }, 'Broadcast failed');
+        }
+        return;
+      }
+
+      // Single-recipient message
       try {
-        await sendBroadcast(log);
+        await sendWhatsAppMessage(log.gym_id, log.phone, log.message);
         await supabase
           .from('whatsapp_logs')
           .update({ status: 'sent' })
           .eq('id', log.id);
+        logger.info({ logId: log.id, phone: log.phone }, 'WhatsApp message sent');
       } catch (err: unknown) {
-        const reason = err instanceof Error ? err.message : 'Broadcast failed';
+        const reason = err instanceof Error ? err.message : 'Unknown error';
         await markFailed(log.id, reason);
-        logger.warn({ logId: log.id, reason }, 'Broadcast failed');
+        logger.warn({ logId: log.id, gymId: log.gym_id, reason }, 'WhatsApp send failed');
       }
-      continue;
+    } finally {
+      inFlight.delete(log.id);
     }
+  });
 
-    // Single-recipient message
-    try {
-      await sendWhatsAppMessage(log.gym_id, log.phone, log.message);
-      await supabase
-        .from('whatsapp_logs')
-        .update({ status: 'sent' })
-        .eq('id', log.id);
-      logger.info({ logId: log.id, phone: log.phone }, 'WhatsApp message sent');
-    } catch (err: unknown) {
-      const reason = err instanceof Error ? err.message : 'Unknown error';
-      await markFailed(log.id, reason);
-      logger.warn({ logId: log.id, gymId: log.gym_id, reason }, 'WhatsApp send failed');
-    }
-  }
+  await Promise.all(tasks);
 }
 
 export function startMessageProcessor(): void {

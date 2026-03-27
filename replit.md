@@ -61,7 +61,7 @@ Express 5 API server. Routes live in `src/routes/` and use `@workspace/api-zod` 
 - `pnpm --filter @workspace/api-server run dev` — run the dev server
 - `pnpm --filter @workspace/api-server run build` — production esbuild bundle (`dist/index.cjs`)
 - Build bundles an allowlist of deps (express, cors, pg, drizzle-orm, zod, etc.) and externalizes the rest
-- **WhatsApp (Baileys)**: `src/lib/whatsapp.ts` — multi-gym session manager using `@whiskeysockets/baileys`. Sessions stored at `/tmp/gymleads-whatsapp/<gymId>/`. Routes: `GET /api/whatsapp/qr/:gymId`, `GET /api/whatsapp/status/:gymId`, `POST /api/whatsapp/send`, `DELETE /api/whatsapp/disconnect/:gymId`. Message processor in `src/lib/messageProcessor.ts` polls `whatsapp_logs` table every 30s for `status='pending'` rows and delivers them via Baileys, updating to `'sent'` or `'failed'`.
+- **WhatsApp (Baileys)**: `src/lib/whatsapp.ts` — multi-gym session manager using `@whiskeysockets/baileys`. Sessions stored at `.local/whatsapp-sessions/<gymId>/` (workspace-relative, persists across restarts; configurable via `WHATSAPP_DEFAULT_COUNTRY_CODE` env var for phone normalisation). Routes: `GET /api/whatsapp/qr/:gymId`, `GET /api/whatsapp/status/:gymId`, `POST /api/whatsapp/send`, `DELETE /api/whatsapp/disconnect/:gymId`. Message processor in `src/lib/messageProcessor.ts` polls `whatsapp_logs` table every 30s for `status='pending'` rows; single-recipient rows deliver directly, no-phone rows fan-out to all gym members with phone numbers. Uses an in-flight Set to prevent duplicate delivery across overlapping cycles.
 
 ### `lib/db` (`@workspace/db`)
 

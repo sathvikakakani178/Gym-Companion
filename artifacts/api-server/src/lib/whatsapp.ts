@@ -128,14 +128,36 @@ export function getSessionStatus(gymId: string): {
   return { status: s.status, phone: s.phone, qrBase64: s.qrBase64 };
 }
 
+/**
+ * Normalise a phone string to an E.164-style digit sequence (no `+` prefix) for Baileys.
+ *
+ * Behaviour (in order):
+ *   1. Strip everything that is not a digit or a leading `+`.
+ *   2. Remove a leading `+` (Baileys expects pure digits).
+ *   3. If the result is exactly 10 digits, assume an Indian local number and
+ *      prepend `91` (the India country code).  Override this default via the
+ *      `WHATSAPP_DEFAULT_COUNTRY_CODE` env-var (e.g. `1` for US/CA, `44` for UK).
+ *
+ * Examples:
+ *   "+919876543210" → "919876543210"
+ *   "9876543210"    → "919876543210" (India default)
+ *   "+14155550100"  → "14155550100"  (already has country code)
+ */
+export function normalisePhone(raw: string): string {
+  const stripped = raw.trim().replace(/[^\d+]/g, '').replace(/^\+/, '');
+  if (stripped.length === 10) {
+    const cc = process.env['WHATSAPP_DEFAULT_COUNTRY_CODE'] ?? '91';
+    return `${cc}${stripped}`;
+  }
+  return stripped;
+}
+
 export async function sendWhatsAppMessage(gymId: string, phone: string, text: string): Promise<void> {
   const s = sessions.get(gymId);
   if (!s || s.status !== 'connected' || !s.sock) {
     throw new Error(`WhatsApp not connected for gym: ${gymId}`);
   }
-  const digits = phone.replace(/\D/g, '');
-  const formatted = digits.length === 10 ? `91${digits}` : digits;
-  const jid = `${formatted}@s.whatsapp.net`;
+  const jid = `${normalisePhone(phone)}@s.whatsapp.net`;
   await s.sock.sendMessage(jid, { text });
 }
 
