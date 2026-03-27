@@ -141,10 +141,30 @@ async function markSent(id: string, context: Record<string, unknown>): Promise<v
     .eq('id', id);
 
   if (updateErr) {
-    // Message was delivered but we couldn't mark it sent — log explicitly so
-    // operators can reconcile rather than risk a duplicate resend on next cycle.
+    // Message was delivered via WhatsApp but the DB status update failed.
+    // Mark as 'failed' with an explicit error_note so:
+    //  - The row is NOT retried by the processor (which only selects 'pending')
+    //  - The stale-recovery requeue does NOT pick it up
+    //  - Operators can see the "DELIVERED:" note and correct the record manually
     logger.error({ logId: id, dbErr: updateErr.message, ...context },
-      'Message sent but status update failed — manual reconciliation required');
+      'Message delivered but status update to sent failed — marking failed to prevent duplicate resend');
+
+    await supabase
+      .from('whatsapp_logs')
+      .update({
+        status: 'failed',
+        error_note: 'DELIVERED: message was sent via WhatsApp but the status update failed. ' +
+          'Do not resend — manually correct this record.',
+      })
+      .eq('id', id)
+      .catch((fallbackErr: unknown) => {
+        const msg = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
+        // If even the failure update fails, the row stays in 'processing' and will
+        // be requeued by stale-row recovery after 5 minutes. The error_note will be missing,
+        // so treat this as a known resend risk and log as critical.
+        logger.error({ logId: id, dbErr: msg, ...context },
+          'CRITICAL: could not update status after delivery — row may be resent by stale-recovery');
+      });
   }
 }
 
@@ -202,6 +222,7 @@ async function requeueStaleProcessingRows(): Promise<void> {
     .update({ status: 'pending' })
     .eq('status', 'processing')
     .lt('updated_at', staleBefore)
+    .not('error_note', 'ilike', 'DELIVERED:%')  // Never requeue confirmed deliveries
     .select('id');
 
   if (error) {
