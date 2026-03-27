@@ -82,6 +82,17 @@ router.post('/whatsapp/send', ...adminOnly, async (req, res) => {
   }
   const sendIdErr = validateGymId(gymId as string);
   if (sendIdErr) return res.status(400).json({ error: sendIdErr });
+
+  // Phone must contain only digits, spaces, hyphens, plus sign (E.164-compatible)
+  const phoneStr = (phone as string).trim();
+  if (!/^\+?[\d\s\-().]{7,20}$/.test(phoneStr)) {
+    return res.status(400).json({ error: 'phone must be a valid phone number (7–20 digits, optional country code prefix)' });
+  }
+  // Message must be within WhatsApp's 4096-character limit
+  const messageStr = (message as string).trim();
+  if (messageStr.length > 4096) {
+    return res.status(400).json({ error: 'message must not exceed 4096 characters' });
+  }
   try {
     await sendWhatsAppMessage(gymId as string, phone as string, message as string);
     return res.json({ success: true });

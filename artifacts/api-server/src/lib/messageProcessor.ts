@@ -187,7 +187,40 @@ async function processLog(log: WhatsAppLog): Promise<void> {
   }
 }
 
+/**
+ * Reset rows that have been stuck in 'processing' for more than 5 minutes back to 'pending'.
+ * Handles the case where a server crash or markSent DB failure left rows in 'processing'
+ * with no further progress. Without this, they would never be retried (the processor
+ * only selects 'pending' rows).
+ */
+async function requeueStaleProcessingRows(): Promise<void> {
+  const staleAfterMs = 5 * 60 * 1000; // 5 minutes
+  const staleBefore = new Date(Date.now() - staleAfterMs).toISOString();
+
+  const { data: reset, error } = await supabase
+    .from('whatsapp_logs')
+    .update({ status: 'pending' })
+    .eq('status', 'processing')
+    .lt('updated_at', staleBefore)
+    .select('id');
+
+  if (error) {
+    // 'updated_at' may not exist in this schema — log at debug so it doesn't
+    // flood prod logs if the column is absent.
+    logger.debug({ err: error.message }, 'Stale processing row recovery unavailable (schema may lack updated_at)');
+    return;
+  }
+
+  const count = Array.isArray(reset) ? reset.length : 0;
+  if (count > 0) {
+    logger.warn({ count }, 'Requeued stale processing rows back to pending for retry');
+  }
+}
+
 async function processMessages(): Promise<void> {
+  // First, recover any rows stuck in 'processing' from a previous crash or failed status update.
+  await requeueStaleProcessingRows();
+
   const { data: pending, error } = await supabase
     .from('whatsapp_logs')
     .select('*')
