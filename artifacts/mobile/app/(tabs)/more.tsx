@@ -1028,6 +1028,29 @@ function WhatsAppSection({ onClose }: { onClose: () => void }) {
       setGymStatuses(prev => ({ ...prev, [gymId]: { status: 'disconnected', phone: null, hasQr: false } }));
       setGymQrData(prev => ({ ...prev, [gymId]: null }));
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      // Auto-restart a fresh session so a new QR appears without requiring a tab switch
+      setGymQrLoading(prev => ({ ...prev, [gymId]: true }));
+      setGymQrError(prev => ({ ...prev, [gymId]: '' }));
+      waFetch(`${API_BASE}/whatsapp/qr/${gymId}`)
+        .then(async res => {
+          const data = await res.json();
+          if (!res.ok) {
+            setGymQrError(prev => ({ ...prev, [gymId]: data.error ?? 'Failed to restart session' }));
+            return;
+          }
+          if (data.status === 'connected') {
+            setGymStatuses(prev => ({ ...prev, [gymId]: { status: 'connected', phone: data.phone, hasQr: false } }));
+          } else if (data.qr) {
+            setGymQrData(prev => ({ ...prev, [gymId]: data.qr }));
+            setGymStatuses(prev => ({ ...prev, [gymId]: { ...(prev[gymId] ?? {}), status: 'connecting', hasQr: true } }));
+          }
+        })
+        .catch(() => {
+          setGymQrError(prev => ({ ...prev, [gymId]: 'Could not restart session' }));
+        })
+        .finally(() => {
+          setGymQrLoading(prev => ({ ...prev, [gymId]: false }));
+        });
     } catch {}
   };
 
