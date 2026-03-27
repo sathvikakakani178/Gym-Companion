@@ -145,12 +145,17 @@ async function processMessages(): Promise<void> {
 
 export function startMessageProcessor(): void {
   if (processorInterval) return;
+  // Run once immediately so any pending messages from before this restart
+  // are delivered without waiting for the first 30s interval.
+  processMessages().catch(err =>
+    logger.error({ err }, 'Unhandled error in message processor (initial run)'),
+  );
   processorInterval = setInterval(() => {
     processMessages().catch(err =>
       logger.error({ err }, 'Unhandled error in message processor'),
     );
   }, 30_000);
-  logger.info('WhatsApp message processor started (30s interval)');
+  logger.info('WhatsApp message processor started (immediate + 30s interval)');
 }
 
 export function stopMessageProcessor(): void {
