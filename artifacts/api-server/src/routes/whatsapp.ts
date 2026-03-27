@@ -80,6 +80,8 @@ router.post('/whatsapp/send', ...adminOnly, async (req, res) => {
   if (missing.length > 0) {
     return res.status(400).json({ error: `Missing or invalid fields: ${missing.join(', ')}` });
   }
+  const sendIdErr = validateGymId(gymId as string);
+  if (sendIdErr) return res.status(400).json({ error: sendIdErr });
   try {
     await sendWhatsAppMessage(gymId as string, phone as string, message as string);
     return res.json({ success: true });

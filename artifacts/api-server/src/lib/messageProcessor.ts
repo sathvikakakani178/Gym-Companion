@@ -59,9 +59,25 @@ async function claimRow(id: string): Promise<boolean> {
     .select('id');
 
   if (error) {
-    // 'processing' may not be a valid status value in this schema version.
-    // Fall back to in-memory guard (single-instance protection only).
-    logger.debug({ id, err: error.message }, 'DB claim step unavailable — using in-memory lock (single-instance only)');
+    // Only fall back to in-memory lock for schema-related errors (e.g. CHECK constraint
+    // violation because 'processing' is not yet a valid status value).
+    // Transient DB errors (network, timeout) should NOT be swallowed — re-throw so the
+    // row is not claimed and will be retried on the next 30s cycle.
+    const isSchemaError =
+      error.code === '23514' || // check_violation (CHECK constraint failed)
+      error.code === '22P02' || // invalid_text_representation
+      (error.message ?? '').toLowerCase().includes('check');
+
+    if (!isSchemaError) {
+      logger.warn({ id, err: error.message, code: error.code },
+        'Transient DB error during claim — skipping row for this cycle');
+      return false;
+    }
+
+    // Schema does not support 'processing' status yet — fall back to in-memory guard.
+    // Run the migration at artifacts/api-server/migrations/001_whatsapp_logs_processing_status.sql
+    // against your Supabase project to enable cross-instance duplicate prevention.
+    logger.debug({ id, err: error.message }, 'DB claim step unavailable (schema) — using in-memory lock (single-instance only)');
     inFlight.add(id);
     return true;
   }
