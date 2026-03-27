@@ -41,7 +41,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     const authUser = (await userRes.json()) as { id: string };
 
     const { data: dbUser, error: dbErr } = await supabase
-      .from('users')
+      .from('profiles')
       .select('role')
       .eq('id', authUser.id)
       .single();

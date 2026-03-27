@@ -5,14 +5,13 @@ import { logger } from './logger.js';
 let processorInterval: NodeJS.Timeout | null = null;
 
 async function markFailed(id: string, reason: string): Promise<void> {
-  // Try with error_note column first; fall back if column doesn't exist
+  // Try with error_note column first; fall back gracefully if the column doesn't exist yet
   const { error } = await supabase
     .from('whatsapp_logs')
     .update({ status: 'failed', error_note: reason })
     .eq('id', id);
 
   if (error) {
-    // Column likely doesn't exist — retry without error_note
     await supabase
       .from('whatsapp_logs')
       .update({ status: 'failed' })
@@ -21,11 +20,12 @@ async function markFailed(id: string, reason: string): Promise<void> {
 }
 
 async function processMessages(): Promise<void> {
+  // Fetch ALL pending rows, including those without a phone number.
+  // Rows without a phone will be marked failed immediately (can't determine recipient).
   const { data: pending, error } = await supabase
     .from('whatsapp_logs')
     .select('*')
     .eq('status', 'pending')
-    .not('phone', 'is', null)
     .limit(20);
 
   if (error) {
@@ -38,8 +38,14 @@ async function processMessages(): Promise<void> {
   logger.info({ count: pending.length }, 'Processing pending WhatsApp messages');
 
   for (const log of pending) {
-    if (!log.phone?.trim() || !log.gym_id) {
-      await markFailed(log.id, 'Missing phone or gym_id');
+    // Validate required fields before attempting send
+    if (!log.gym_id) {
+      await markFailed(log.id, 'Missing gym_id');
+      continue;
+    }
+    if (!log.phone?.trim()) {
+      await markFailed(log.id, 'No phone number — broadcast-to-all not yet supported via direct delivery');
+      logger.info({ logId: log.id }, 'Marked no-phone log as failed');
       continue;
     }
 

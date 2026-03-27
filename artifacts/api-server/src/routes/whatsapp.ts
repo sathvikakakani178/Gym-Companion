@@ -16,7 +16,7 @@ const adminOnly = [requireAuth, requireRole('super_admin')];
 // Starts (or resumes) a Baileys session and returns the current QR code (if pending)
 // or connected status. Only super_admin may call this.
 router.get('/whatsapp/qr/:gymId', ...adminOnly, async (req, res) => {
-  const { gymId } = req.params;
+  const gymId = String(req.params['gymId']);
   try {
     await getOrCreateSession(gymId);
 
@@ -47,12 +47,12 @@ router.get('/whatsapp/qr/:gymId', ...adminOnly, async (req, res) => {
 // refresh the displayed QR automatically when Baileys generates a new one.
 // Only super_admin may call this.
 router.get('/whatsapp/status/:gymId', ...adminOnly, (req, res) => {
-  const { gymId } = req.params;
+  const gymId = String(req.params['gymId']);
   const { status, phone, qrBase64 } = getSessionStatus(gymId);
   return res.json({ status, phone, hasQr: !!qrBase64, qr: qrBase64 });
 });
 
-// POST /api/whatsapp/send — direct send (bypasses queue, for testing / admin use)
+// POST /api/whatsapp/send — direct send (bypasses queue, for admin testing)
 router.post('/whatsapp/send', ...adminOnly, async (req, res) => {
   const { gymId, phone, message } = req.body as { gymId?: string; phone?: string; message?: string };
   if (!gymId || !phone || !message) {
@@ -68,7 +68,7 @@ router.post('/whatsapp/send', ...adminOnly, async (req, res) => {
 
 // DELETE /api/whatsapp/disconnect/:gymId
 router.delete('/whatsapp/disconnect/:gymId', ...adminOnly, async (req, res) => {
-  const { gymId } = req.params;
+  const gymId = String(req.params['gymId']);
   try {
     await disconnectSession(gymId);
     return res.json({ success: true });
