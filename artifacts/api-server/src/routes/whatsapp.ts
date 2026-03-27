@@ -12,11 +12,20 @@ const router = Router();
 
 const adminOnly = [requireAuth, requireRole('super_admin')];
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function validateGymId(gymId: string): string | null {
+  if (!UUID_RE.test(gymId)) return `Invalid gymId: expected a UUID, got "${gymId}"`;
+  return null;
+}
+
 // GET /api/whatsapp/qr/:gymId
 // Starts (or resumes) a Baileys session and returns the current QR code (if pending)
 // or connected status. Polls up to 12s for QR to appear. Only super_admin may call this.
 router.get('/whatsapp/qr/:gymId', ...adminOnly, async (req, res) => {
   const gymId = String(req.params['gymId']);
+  const idErr = validateGymId(gymId);
+  if (idErr) return res.status(400).json({ error: idErr });
   try {
     await getOrCreateSession(gymId);
 
@@ -49,6 +58,8 @@ router.get('/whatsapp/qr/:gymId', ...adminOnly, async (req, res) => {
 // Only super_admin may call this.
 router.get('/whatsapp/status/:gymId', ...adminOnly, (req, res) => {
   const gymId = String(req.params['gymId']);
+  const idErr = validateGymId(gymId);
+  if (idErr) return res.status(400).json({ error: idErr });
   const { status, phone, qrBase64 } = getSessionStatus(gymId);
   return res.json({ status, phone, hasQr: !!qrBase64, qr: qrBase64 });
 });
@@ -81,6 +92,8 @@ router.post('/whatsapp/send', ...adminOnly, async (req, res) => {
 // DELETE /api/whatsapp/disconnect/:gymId
 router.delete('/whatsapp/disconnect/:gymId', ...adminOnly, async (req, res) => {
   const gymId = String(req.params['gymId']);
+  const idErr = validateGymId(gymId);
+  if (idErr) return res.status(400).json({ error: idErr });
   try {
     await disconnectSession(gymId);
     return res.json({ success: true });

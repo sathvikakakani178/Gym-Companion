@@ -1644,7 +1644,7 @@ function WhatsAppOwnerSection({ onClose }: { onClose: () => void }) {
             {broadcastSuccess && (
               <View style={{ flexDirection: 'row', gap: 8, backgroundColor: Colors.primaryMuted, borderRadius: 10, padding: 10, borderWidth: 1, borderColor: Colors.primary + '40' }}>
                 <Ionicons name="checkmark-circle-outline" size={16} color={Colors.primary} />
-                <Text style={{ fontFamily: 'Inter_500Medium', fontSize: 13, color: Colors.primary }}>Message logged successfully!</Text>
+                <Text style={{ fontFamily: 'Inter_500Medium', fontSize: 13, color: Colors.primary }}>Message queued for delivery!</Text>
               </View>
             )}
             <Pressable
@@ -1678,7 +1678,7 @@ function WhatsAppOwnerSection({ onClose }: { onClose: () => void }) {
                 <Text style={[section.name, { flex: 1 }]}>
                   {log.phone ? log.phone : 'Broadcast'}
                 </Text>
-                <StatusBadge status={log.status ?? 'sent'} map={WA_STATUS_MAP} />
+                <StatusBadge status={log.status ?? 'pending'} map={WA_STATUS_MAP} />
               </View>
               <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 13, color: Colors.textSecondary, lineHeight: 18 }} numberOfLines={3}>{log.message}</Text>
               <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 11, color: Colors.textMuted, marginTop: 4 }}>{fmtDate(log.created_at)}</Text>
