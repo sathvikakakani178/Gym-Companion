@@ -61,6 +61,7 @@ Express 5 API server. Routes live in `src/routes/` and use `@workspace/api-zod` 
 - `pnpm --filter @workspace/api-server run dev` — run the dev server
 - `pnpm --filter @workspace/api-server run build` — production esbuild bundle (`dist/index.cjs`)
 - Build bundles an allowlist of deps (express, cors, pg, drizzle-orm, zod, etc.) and externalizes the rest
+- **WhatsApp (Baileys)**: `src/lib/whatsapp.ts` — multi-gym session manager using `@whiskeysockets/baileys`. Sessions stored at `/tmp/gymleads-whatsapp/<gymId>/`. Routes: `GET /api/whatsapp/qr/:gymId`, `GET /api/whatsapp/status/:gymId`, `POST /api/whatsapp/send`, `DELETE /api/whatsapp/disconnect/:gymId`. Message processor in `src/lib/messageProcessor.ts` polls `whatsapp_logs` table every 30s for `status='pending'` rows and delivers them via Baileys, updating to `'sent'` or `'failed'`.
 
 ### `lib/db` (`@workspace/db`)
 
@@ -113,7 +114,7 @@ GymLeads Expo React Native mobile app (web-compatible via Expo Web). Connects di
 - **Branches** — CRUD for gym branches
 - **Plans** — Gym subscription management (gym_subscriptions table). Base/Classic/Pro tiers. Filter by status.
 - **Modules** — Toggle module features per gym (gym_modules + modules tables). Gym picker + toggle switches.
-- **WhatsApp** — Message logs (whatsapp_logs) + Broadcast send form. Two tabs: Logs / Broadcast.
+- **WhatsApp** — Three tabs: Setup (QR per gym via Baileys), Broadcast (queues to whatsapp_logs as 'pending'), Logs.
 - **Billing** — Invoice management (invoices table). Stats grid, create/mark-paid. Filter by status and gym.
 
 #### More screen sections (gym_owner)
