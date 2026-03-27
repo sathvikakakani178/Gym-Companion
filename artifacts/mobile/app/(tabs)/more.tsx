@@ -951,7 +951,9 @@ function WhatsAppSection({ onClose }: { onClose: () => void }) {
             results[gym.id] = data;
             if (data.qr) setGymQrData(prev => ({ ...prev, [gym.id]: data.qr ?? null }));
           }
-        } catch {}
+        } catch (err) {
+          console.warn('[WA] Status poll failed for gym', gym.id, err);
+        }
       })
     );
     setGymStatuses(prev => ({ ...prev, ...results }));
@@ -1028,10 +1030,12 @@ function WhatsAppSection({ onClose }: { onClose: () => void }) {
                 const d = await r.json();
                 if (d.qr) setGymQrData(prev => ({ ...prev, [gymId]: d.qr }));
               })
-              .catch(() => {})
+              .catch((err) => { console.warn('[WA] QR fetch failed for gym', gymId, err); })
               .finally(() => setGymQrLoading(prev => ({ ...prev, [gymId]: false })));
           }
-        } catch {}
+        } catch (err) {
+          console.warn('[WA] Poll interval error for gym', gymId, err);
+        }
       }
     }, 3000);
     return () => clearInterval(interval);
@@ -1060,13 +1064,16 @@ function WhatsAppSection({ onClose }: { onClose: () => void }) {
             setGymStatuses(prev => ({ ...prev, [gymId]: { ...(prev[gymId] ?? {}), status: 'connecting', hasQr: true } }));
           }
         })
-        .catch(() => {
+        .catch((err) => {
+          console.warn('[WA] Auto-restart failed for gym', gymId, err);
           setGymQrError(prev => ({ ...prev, [gymId]: 'Could not restart session' }));
         })
         .finally(() => {
           setGymQrLoading(prev => ({ ...prev, [gymId]: false }));
         });
-    } catch {}
+    } catch (err) {
+      console.warn('[WA] handleAutoRestart error for gym', gymId, err);
+    }
   };
 
   const handleBroadcast = () => {

@@ -4,6 +4,10 @@ import { logger } from './logger.js';
 
 let processorInterval: NodeJS.Timeout | null = null;
 
+// In-memory guard: used as fallback when DB-level claim is unavailable
+// (e.g., 'processing' status not in schema). Prevents intra-process duplicates.
+const inFlight = new Set<string>();
+
 interface WhatsAppLog {
   id: string;
   gym_id: string;
@@ -35,21 +39,40 @@ async function markFailed(id: string, reason: string): Promise<void> {
 /**
  * Atomically claim a pending log row by transitioning it to 'processing'.
  * Returns false if the row was already claimed by another process/instance.
+ *
+ * Strategy:
+ *  1. Try DB-level atomic claim (status: pending → processing).
+ *     Works across multiple API instances and is the primary guard.
+ *  2. If the DB update fails (e.g., 'processing' not a valid schema value),
+ *     fall back to the in-memory inFlight Set which prevents intra-process
+ *     duplicates within a single instance.
  */
 async function claimRow(id: string): Promise<boolean> {
+  // In-memory guard: reject if already processing within this instance
+  if (inFlight.has(id)) return false;
+
   const { data, error } = await supabase
     .from('whatsapp_logs')
     .update({ status: 'processing' })
     .eq('id', id)
-    .eq('status', 'pending')  // Only update if still pending (atomic claim)
+    .eq('status', 'pending')  // Only update if still pending (atomic cross-instance claim)
     .select('id');
 
   if (error) {
-    // If 'processing' isn't a valid status value, fall back gracefully
-    logger.debug({ id, err: error.message }, 'DB claim failed — falling back to in-memory lock');
-    return true; // Proceed anyway; in-memory in-flight set still protects within one instance
+    // 'processing' may not be a valid status value in this schema version.
+    // Fall back to in-memory guard (single-instance protection only).
+    logger.debug({ id, err: error.message }, 'DB claim step unavailable — using in-memory lock (single-instance only)');
+    inFlight.add(id);
+    return true;
   }
-  return Array.isArray(data) && data.length > 0;
+
+  const claimed = Array.isArray(data) && data.length > 0;
+  if (claimed) inFlight.add(id); // Track in-memory too for consistency
+  return claimed;
+}
+
+function releaseRow(id: string): void {
+  inFlight.delete(id);
 }
 
 /**
@@ -117,29 +140,34 @@ async function processLog(log: WhatsAppLog): Promise<void> {
     return;
   }
 
-  if (!log.phone?.trim()) {
-    // Broadcast: fan-out to all gym members with phone numbers
-    try {
-      await sendBroadcast(log);
-      await markSent(log.id, { type: 'broadcast' });
-      logger.info({ logId: log.id }, 'Broadcast delivered and marked sent');
-    } catch (err: unknown) {
-      const reason = err instanceof Error ? err.message : 'Broadcast failed';
-      await markFailed(log.id, reason);
-      logger.warn({ logId: log.id, reason }, 'Broadcast failed');
-    }
-    return;
-  }
-
-  // Single-recipient message
   try {
-    await sendWhatsAppMessage(log.gym_id, log.phone, log.message);
-    await markSent(log.id, { phone: log.phone });
-    logger.info({ logId: log.id, phone: log.phone }, 'WhatsApp message sent');
-  } catch (err: unknown) {
-    const reason = err instanceof Error ? err.message : 'Unknown error';
-    await markFailed(log.id, reason);
-    logger.warn({ logId: log.id, gymId: log.gym_id, reason }, 'WhatsApp send failed');
+    if (!log.phone?.trim()) {
+      // Broadcast: fan-out to all gym members with phone numbers
+      try {
+        await sendBroadcast(log);
+        await markSent(log.id, { type: 'broadcast' });
+        logger.info({ logId: log.id }, 'Broadcast delivered and marked sent');
+      } catch (err: unknown) {
+        const reason = err instanceof Error ? err.message : 'Broadcast failed';
+        await markFailed(log.id, reason);
+        logger.warn({ logId: log.id, reason }, 'Broadcast failed');
+      }
+    } else {
+      // Single-recipient message
+      try {
+        await sendWhatsAppMessage(log.gym_id, log.phone, log.message);
+        await markSent(log.id, { phone: log.phone });
+        logger.info({ logId: log.id, phone: log.phone }, 'WhatsApp message sent');
+      } catch (err: unknown) {
+        const reason = err instanceof Error ? err.message : 'Unknown error';
+        await markFailed(log.id, reason);
+        logger.warn({ logId: log.id, gymId: log.gym_id, reason }, 'WhatsApp send failed');
+      }
+    }
+  } finally {
+    // Always release the in-memory lock so the row can be retried on the next
+    // cycle if it was marked failed, or cleaned up after success.
+    releaseRow(log.id);
   }
 }
 
