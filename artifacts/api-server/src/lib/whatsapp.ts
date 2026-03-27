@@ -34,8 +34,14 @@ interface Session {
 
 const sessions = new Map<string, Session>();
 
+// UUID v4 format (also accepts UUID v1-v5 for flexibility)
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function getSessionDir(gymId: string): string {
-  return path.join(SESSIONS_DIR, gymId);
+  if (!UUID_RE.test(gymId)) {
+    throw new Error(`Invalid gymId: must be a valid UUID (got: ${JSON.stringify(gymId)})`);
+  }
+  return path.join(SESSIONS_DIR, path.basename(gymId));
 }
 
 async function createSession(gymId: string): Promise<Session> {

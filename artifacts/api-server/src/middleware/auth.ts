@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction } from 'express';
-import { supabase } from '../lib/supabase.js';
+import { createUserClient } from '../lib/supabase.js';
 import { logger } from '../lib/logger.js';
 
 const SUPABASE_URL = (process.env['EXPO_PUBLIC_SUPABASE_ANON_KEY'] ?? '').replace(/\/$/, '');
@@ -48,7 +48,9 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 
     const authUser = (await userRes.json()) as SupabaseAuthUser;
 
-    const { data: profile, error: profileErr } = await supabase
+    // Query as the authenticated user so RLS allows reading their own profile row
+    const userClient = createUserClient(token);
+    const { data: profile, error: profileErr } = await userClient
       .from('profiles')
       .select('role')
       .eq('id', authUser.id)
